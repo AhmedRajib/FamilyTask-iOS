@@ -6,16 +6,18 @@ struct HomeView: View {
     @State private var scope: HomeScope = .mine
     /// Tapping a face in the family strip shows only that person's tasks.
     @State private var memberFilter: UUID?
+    /// Drives the first-time entrance. Stays true while Home is alive (e.g. coming back from a task).
+    @State private var appeared = false
 
     var body: some View {
         let list = store.homeTasks(scope: scope, member: memberFilter)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                header
+                header.reveal(appeared, order: 0, distance: -10)
                 memberStrip
-                stats
-                filterControl
+                stats.reveal(appeared, order: 2)
+                filterControl.reveal(appeared, order: 3)
                 taskList(list)
             }
             .padding(.horizontal, 20)
@@ -23,6 +25,7 @@ struct HomeView: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background)
+        .startsEntrance($appeared, isActive: router.tab == .home)
         // Gives pushed pages a "‹ Home" back button.
         .navigationTitle("Home")
         .toolbar(.hidden, for: .navigationBar)
@@ -56,8 +59,9 @@ struct HomeView: View {
     private var memberStrip: some View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 16) {
-                ForEach(store.family.members) { member in
+                ForEach(Array(store.family.members.enumerated()), id: \.element.id) { index, member in
                     memberButton(member)
+                        .popIn(appeared, order: 1 + index)
                 }
                 if store.permissions.canManageMembers {
                     Button { router.push(.addMember) } label: {
@@ -72,6 +76,7 @@ struct HomeView: View {
                     }
                     .buttonStyle(PressableStyle())
                     .accessibilityLabel("Add family member")
+                    .popIn(appeared, order: 1 + store.family.members.count)
                 }
             }
             .padding(.vertical, 4)
@@ -117,9 +122,10 @@ struct HomeView: View {
 
     private var stats: some View {
         HStack(spacing: 8) {
-            StatTile(value: store.urgentCount, label: "Urgent", isHot: store.urgentCount > 0)
-            StatTile(value: store.dueTodayCount, label: "Due today")
-            StatTile(value: store.doneTodayCount, label: "Done today")
+            StatTile(value: store.urgentCount, label: "Urgent", isHot: store.urgentCount > 0,
+                     isShown: appeared, delay: 0.25)
+            StatTile(value: store.dueTodayCount, label: "Due today", isShown: appeared, delay: 0.32)
+            StatTile(value: store.doneTodayCount, label: "Done today", isShown: appeared, delay: 0.39)
         }
     }
 
@@ -152,13 +158,15 @@ struct HomeView: View {
     private func taskList(_ list: [FamilyTask]) -> some View {
         if list.isEmpty {
             EmptyStateView(emoji: "🎉", title: "All clear", message: "Nothing here right now. Tap ＋ to add a task.")
+                .reveal(appeared, order: 4)
         } else {
             LazyVStack(spacing: 10) {
-                ForEach(list) { task in
+                ForEach(Array(list.enumerated()), id: \.element.id) { index, task in
                     TaskCard(task: task)
                         .contentShape(Rectangle())
                         .onTapGesture { router.push(.taskDetail(task.id)) }
                         .accessibilityAddTraits(.isButton)
+                        .reveal(appeared, order: 4 + index, distance: 26, step: 0.06)
                         .transition(.asymmetric(
                             insertion: .scale(scale: 0.96).combined(with: .opacity),
                             removal: .opacity
@@ -174,13 +182,13 @@ private struct StatTile: View {
     let value: Int
     let label: String
     var isHot = false
+    var isShown = true
+    var delay: Double = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(value)")
+            CountUpText(value: value, isShown: isShown, delay: delay)
                 .font(.system(size: 24, weight: .bold))
-                .contentTransition(.numericText())
-                .animation(Theme.spring, value: value)
             Text(label)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(isHot ? .white.opacity(0.85) : Theme.ink2)

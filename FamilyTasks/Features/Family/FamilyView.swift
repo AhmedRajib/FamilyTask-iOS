@@ -5,6 +5,7 @@ struct FamilyView: View {
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var gate: PremiumGate
     @EnvironmentObject private var session: AppSession
+    @State private var appeared = false
 
     var body: some View {
         ScrollView {
@@ -17,8 +18,11 @@ struct FamilyView: View {
                     #endif
                 }
                 .padding(.top, 8)
+                .reveal(appeared, order: 0, distance: -10)
 
-                householdCard.padding(.top, 14)
+                HouseholdCard(isShown: appeared)
+                    .padding(.top, 14)
+                    .reveal(appeared, order: 1)
 
                 VStack(spacing: 0) {
                     if store.permissions.canPay || store.isPremium {
@@ -48,6 +52,7 @@ struct FamilyView: View {
                 }
                 .card(padding: 0)
                 .padding(.vertical, 16)
+                .reveal(appeared, order: 3)
 
                 HStack {
                     Text("This week").font(.system(size: 16, weight: .semibold))
@@ -55,18 +60,23 @@ struct FamilyView: View {
                     Text("done / total").font(.system(size: 12)).foregroundStyle(Theme.ink3)
                 }
                 .padding(.bottom, 8)
+                .reveal(appeared, order: 4)
 
                 VStack(spacing: 0) {
                     ForEach(Array(store.family.members.enumerated()), id: \.element.id) { index, member in
                         Button { router.push(.memberProfile(member.id)) } label: {
                             MemberRow(member: member, isMe: member.id == store.me.id,
-                                      progress: store.weekProgress(for: member.id))
+                                      progress: store.weekProgress(for: member.id),
+                                      isShown: appeared,
+                                      fillDelay: 0.35 + Double(min(index, 10)) * 0.07)
                         }
                         .buttonStyle(.plain)
+                        .reveal(appeared, order: 5 + index, distance: 14)
                         if index < store.family.members.count - 1 { RowDivider(leading: 70) }
                     }
                 }
                 .card(padding: 0)
+                .reveal(appeared, order: 5, distance: 20)
                 .animation(Theme.spring, value: store.family.members.map(\.id))
             }
             .padding(.horizontal, 20)
@@ -74,6 +84,7 @@ struct FamilyView: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background)
+        .startsEntrance($appeared, isActive: router.tab == .family)
         .navigationTitle("Family")
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -92,33 +103,6 @@ struct FamilyView: View {
         } else {
             gate.present(for: nil, in: store)
         }
-    }
-
-    private var householdCard: some View {
-        let joined = store.family.members.filter { !$0.isInvited }
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Household").font(.system(size: 12)).opacity(0.6)
-                    Text("\(store.family.name) 🏡").font(.system(size: 19, weight: .bold))
-                }
-                Spacer()
-                AvatarStack(members: Array(joined.prefix(4)), size: 32, ring: Theme.ink)
-            }
-            if store.permissions.canManageMembers {
-                Button { router.push(.addMember) } label: {
-                    Label("Add member", systemImage: "plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(PressableStyle())
-            }
-        }
-        .foregroundStyle(.white)
-        .padding(18)
-        .background(Theme.ink, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     #if DEBUG
@@ -151,7 +135,10 @@ private struct MemberRow: View {
     let member: Member
     let isMe: Bool
     let progress: (done: Int, total: Int)
-    @State private var appeared = false
+    /// Bars fill one after another as the rows arrive.
+    /// The row is on screen (the Family tab's entrance has started).
+    var isShown = true
+    var fillDelay: Double = 0.1
 
     private var fraction: Double {
         progress.total == 0 ? 0 : Double(progress.done) / Double(progress.total)
@@ -182,7 +169,9 @@ private struct MemberRow: View {
                             Capsule().fill(Theme.surface2)
                             Capsule()
                                 .fill(member.color)
-                                .frame(width: proxy.size.width * (appeared ? fraction : 0))
+                                .frame(width: proxy.size.width * (isShown ? fraction : 0))
+                                .animation(.spring(response: 0.8, dampingFraction: 0.85).delay(fillDelay), value: isShown)
+                                .animation(Theme.spring, value: fraction)
                         }
                     }
                     .frame(height: 6)
@@ -202,9 +191,6 @@ private struct MemberRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.85).delay(0.1)) { appeared = true }
-        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(member.isInvited
             ? "\(member.name), invited, waiting to join"

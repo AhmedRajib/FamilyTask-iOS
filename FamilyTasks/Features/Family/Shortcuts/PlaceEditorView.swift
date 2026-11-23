@@ -2,8 +2,10 @@ import SwiftUI
 import MapKit
 
 /// Add or edit a family place: name, emoji, where it is, and how close counts as "there".
+/// With `requestID`, a parent reviews a child's place request: pre-filled, and saving approves it.
 struct PlaceEditorView: View {
     let placeID: UUID?
+    var requestID: UUID? = nil
     @EnvironmentObject private var store: FamilyStore
     @Environment(\.dismiss) private var dismiss
 
@@ -24,11 +26,13 @@ struct PlaceEditorView: View {
     private static let suggestions = ["🏠", "🏫", "🛒", "🏥", "👵", "⚽", "🕌"]
 
     private var existing: Place? { store.place(placeID) }
+    private var request: PlaceRequest? { store.placeRequest(requestID) }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if let request { requestBanner(request) }
                 NameField(placeholder: "Name, like \"Grandma's house\"", text: $name, focused: $nameFocused)
 
                 SectionLabel("Emoji").padding(.top, 20).padding(.bottom, 8)
@@ -76,11 +80,11 @@ struct PlaceEditorView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Theme.background)
-        .navigationTitle(existing == nil ? "New place" : "Edit place")
+        .navigationTitle(request != nil ? "Check place" : existing == nil ? "New place" : "Edit place")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            EditorSaveBar(title: existing == nil ? "Save place" : "Save",
+            EditorSaveBar(title: request != nil ? "Approve & save" : existing == nil ? "Save place" : "Save",
                           enabled: !trimmedName.isEmpty && hasLocation, action: save)
         }
         .alert("Delete \"\(existing?.name ?? "")\"?", isPresented: $confirmDelete) {
@@ -95,6 +99,27 @@ struct PlaceEditorView: View {
             Text(deleteMessage(usedBy: placeID.map(store.templates(usingPlace:)) ?? [], losing: "a place"))
         }
         .onAppear(perform: load)
+    }
+
+    /// "Ali asked for this · for Swimming lesson · "The one next to the library""
+    private func requestBanner(_ request: PlaceRequest) -> some View {
+        let who = store.member(request.memberID)
+        return HStack(alignment: .top, spacing: 10) {
+            if let who { AvatarView(member: who, size: 30) }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("**\(who?.name ?? "Someone")** asked for this place\(request.forTaskTitle.map { " for “\($0)”" } ?? "")")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(Theme.ink)
+                if !request.hint.isEmpty {
+                    Text("“\(request.hint)”").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                }
+                Text("Check the pin and radius, then approve.").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Theme.brandSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.bottom, 14)
     }
 
     // MARK: - Search
@@ -155,7 +180,15 @@ struct PlaceEditorView: View {
     private func load() {
         guard !didLoad else { return }
         didLoad = true
-        if let existing {
+        if let request {
+            let place = request.place
+            name = place.name
+            emoji = place.emoji
+            address = place.address
+            radius = place.radius
+            region = RadiusMap.region(around: place.coordinate, radius: place.radius)
+            hasLocation = true
+        } else if let existing {
             name = existing.name
             emoji = existing.emoji
             address = existing.address
@@ -179,7 +212,11 @@ struct PlaceEditorView: View {
         item.latitude = region.center.latitude
         item.longitude = region.center.longitude
         item.radius = radius
-        store.savePlace(item)
+        if let requestID {
+            store.approvePlaceRequest(requestID, as: item)
+        } else {
+            store.savePlace(item)
+        }
         Haptic.success.play()
         dismiss()
     }

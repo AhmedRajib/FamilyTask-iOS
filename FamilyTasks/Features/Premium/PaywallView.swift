@@ -33,6 +33,8 @@ struct PaywallView: View {
     /// Yearly is pre-selected so the saving is obvious.
     @State private var plan: PremiumPlan = .yearly
     @State private var purchased: ActiveSubscription?
+    /// Drives the entrance: hero → perks → plans → button.
+    @State private var appeared = false
 
     var body: some View {
         ZStack {
@@ -52,6 +54,7 @@ struct PaywallView: View {
         }
         .haptic(.success, trigger: purchased != nil) { _, done in done }
         .task { await premium.load() }
+        .startsEntrance($appeared)
         .alert("Family Premium", isPresented: Binding(
             get: { premium.errorMessage != nil },
             set: { if !$0 { premium.errorMessage = nil } }
@@ -67,6 +70,7 @@ struct PaywallView: View {
     private var paywall: some View {
         VStack(spacing: 0) {
             topBar
+                .reveal(appeared, order: 0, distance: -8)
             ScrollView {
                 VStack(spacing: 0) {
                     hero
@@ -78,6 +82,7 @@ struct PaywallView: View {
             }
             .scrollIndicators(.hidden)
             cta
+                .reveal(appeared, order: 9, distance: 40)
         }
     }
 
@@ -105,8 +110,7 @@ struct PaywallView: View {
     private var hero: some View {
         let joined = store.family.members.filter { !$0.isInvited }
         return VStack(spacing: 0) {
-            AvatarStack(members: Array((joined.isEmpty ? store.family.members : joined).prefix(4)),
-                        size: 44, ring: Color(hex: 0xFFF8EC))
+            heroAvatars(Array((joined.isEmpty ? store.family.members : joined).prefix(4)))
             Text("✨ FAMILY PREMIUM")
                 .font(.system(size: 10.5, weight: .heavy))
                 .tracking(1.4)
@@ -114,25 +118,41 @@ struct PaywallView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(Theme.highSoft, in: Capsule())
+                .shimmer(every: 4)
                 .padding(.top, 12)
+                .reveal(appeared, order: 2)
             Text("One plan for the whole family")
                 .font(.system(size: 23, weight: .bold))
                 .tracking(-0.4)
                 .foregroundStyle(Theme.ink)
                 .padding(.top, 8)
                 .accessibilityAddTraits(.isHeader)
+                .reveal(appeared, order: 3)
             Text("Everyone in **\(store.family.name)** gets Premium, on iPhone and Android.")
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.ink2)
                 .padding(.top, 6)
+                .reveal(appeared, order: 4)
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
     }
 
+    /// The family's faces pop in one by one, slightly overlapping.
+    private func heroAvatars(_ members: [Member]) -> some View {
+        HStack(spacing: -14) {
+            ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                AvatarView(member: member, size: 44, ring: Color(hex: 0xFFF8EC))
+                    .popIn(appeared, order: index)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(members.map(\.name).formatted(.list(type: .and)))
+    }
+
     private var perks: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-            ForEach(PremiumFeature.allCases) { perk in
+            ForEach(Array(PremiumFeature.allCases.enumerated()), id: \.element) { index, perk in
                 let highlighted = perk == feature
                 HStack(spacing: 7) {
                     Text(perk.emoji).font(.system(size: 16))
@@ -158,19 +178,21 @@ struct PaywallView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(highlighted ? Theme.high : Theme.line, lineWidth: highlighted ? 1.5 : 1)
                 )
+                .reveal(appeared, order: 5 + index / 2, distance: 12)
             }
         }
     }
 
     private var plans: some View {
         VStack(spacing: 8) {
-            ForEach(PremiumPlan.allCases) { option in
+            ForEach(Array(PremiumPlan.allCases.enumerated()), id: \.element) { index, option in
                 Button {
                     withAnimation(.quick) { plan = option }
                 } label: {
                     PlanRow(plan: option, isSelected: plan == option, premium: premium)
                 }
                 .buttonStyle(.plain)
+                .reveal(appeared, order: 7 + index, distance: 24)
                 .haptic(.selection, trigger: plan == option) { _, on in on }
             }
         }
@@ -187,6 +209,7 @@ struct PaywallView: View {
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
+            .shimmer(active: !premium.isPurchasing)
             .disabled(premium.isPurchasing)
 
             Text(finePrint)

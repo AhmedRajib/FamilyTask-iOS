@@ -93,6 +93,8 @@ struct Family: Identifiable, Codable {
     var premium: PremiumStatus? = nil
     /// "Ali would like Stars & rewards" — shown to parents in the Inbox.
     var premiumRequests: [PremiumRequest]? = nil
+    /// Children asking for new family places. Optional so older saved data still loads.
+    var placeRequests: [PlaceRequest]? = nil
 }
 
 // MARK: - Premium
@@ -105,6 +107,28 @@ struct PremiumStatus: Codable, Hashable {
     var purchasedBy: UUID
 
     var isActive: Bool { expiresAt > .now }
+}
+
+/// A child found a place on the map and asked for it to become a family place.
+/// Private to the child and the parents/adults until someone approves it.
+struct PlaceRequest: Identifiable, Codable, Hashable {
+    enum Status: String, Codable { case pending, approved, declined }
+
+    var id = UUID()
+    var memberID: UUID
+    /// Where the child put the pin, with the name and emoji they chose.
+    var place: Place
+    var hint: String = ""
+    /// The task they were making, so parents know why ("for Swimming lesson").
+    var forTaskTitle: String? = nil
+    var date: Date = .now
+    var status: Status = .pending
+    var decidedBy: UUID? = nil
+    var decidedAt: Date? = nil
+    /// The family place it became (the parent may have edited it).
+    var approvedPlaceID: UUID? = nil
+    /// The child has seen the outcome and cleared it from their Inbox.
+    var isDismissed = false
 }
 
 struct PremiumRequest: Identifiable, Codable, Hashable {

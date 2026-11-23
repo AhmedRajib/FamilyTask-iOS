@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 /// Requests waiting for me, plus updates on tasks I created (done / declined).
 /// Location never appears here — creators only hear about completion.
@@ -12,15 +13,28 @@ struct InboxView: View {
         let completed = store.completedForMe
         let declined = store.declinedForMe
         let premiumRequests = store.premiumRequests
+        let placeRequests = store.pendingPlaceRequests
+        let myPlaceRequests = store.myPlaceRequests
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ScreenTitle("Inbox").padding(.top, 8)
 
-                if requests.isEmpty && completed.isEmpty && declined.isEmpty && premiumRequests.isEmpty {
+                if requests.isEmpty && completed.isEmpty && declined.isEmpty && premiumRequests.isEmpty
+                    && placeRequests.isEmpty && myPlaceRequests.isEmpty {
                     EmptyStateView(emoji: "📭", title: "You're all caught up",
                                    message: "Requests and updates on tasks you created show up here.")
                         .padding(.top, 40)
+                }
+
+                if !placeRequests.isEmpty {
+                    SectionLabel("New places to check").padding(.top, 20).padding(.bottom, 4)
+                    ForEach(placeRequests) { placeRequestCard($0) }
+                }
+
+                if !myPlaceRequests.isEmpty {
+                    SectionLabel("Your place requests").padding(.top, 20).padding(.bottom, 4)
+                    ForEach(myPlaceRequests) { myPlaceRequestRow($0) }
                 }
 
                 if !premiumRequests.isEmpty {
@@ -68,6 +82,8 @@ struct InboxView: View {
             .padding(.bottom, 24)
             .animation(Theme.spring, value: requests.map(\.id))
             .animation(Theme.spring, value: premiumRequests.map(\.id))
+            .animation(Theme.spring, value: placeRequests.map(\.id))
+            .animation(Theme.spring, value: myPlaceRequests.map(\.id))
         }
         .scrollIndicators(.hidden)
         .background(Theme.background)
@@ -127,7 +143,93 @@ struct InboxView: View {
         .transition(.opacity.combined(with: .move(edge: .leading)))
     }
 
-    private func smallButton(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
+    // MARK: - Place requests
+
+    /// 7g · A parent sees exactly where the child put the pin, then approves, edits or declines.
+    private func placeRequestCard(_ request: PlaceRequest) -> some View {
+        let who = store.member(request.memberID)
+        let place = request.place
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                if let who { AvatarView(member: who, size: 36) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("**\(who?.name ?? "Someone")** asked you to add a place")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.ink)
+                    Text([request.date.formatted(.relative(presentation: .named)),
+                          request.forTaskTitle.map { "for “\($0)”" }].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.ink3)
+                }
+            }
+            RadiusMap(region: .constant(RadiusMap.region(around: place.coordinate, radius: place.radius)),
+                      radius: place.radius, isInteractive: false, pinColor: Theme.urgent)
+                .frame(height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityLabel("Map showing where \(who?.name ?? "they") put the pin")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(place.emoji) **\(place.name)**\(place.address.isEmpty ? "" : " · \(place.address)")")
+                if !request.hint.isEmpty { Text("“\(request.hint)”").foregroundStyle(Theme.ink2) }
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(Theme.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack(spacing: 6) {
+                smallButton("✓ Approve", filled: true, color: Theme.done) {
+                    store.approvePlaceRequest(request.id)
+                    Haptic.success.play()
+                }
+                smallButton("Edit", filled: false) { router.push(.reviewPlaceRequest(request.id)) }
+                smallButton("Not now", filled: false) { store.declinePlaceRequest(request.id) }
+            }
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.brand, lineWidth: 1.5))
+        .padding(.vertical, 8)
+        .transition(.opacity.combined(with: .move(edge: .leading)))
+    }
+
+    /// 7h · The child sees what happened to their request.
+    private func myPlaceRequestRow(_ request: PlaceRequest) -> some View {
+        let decider = request.decidedBy.flatMap(store.member)
+        let place = request.place
+        let (icon, tint, message): (String, Color, Text) = switch request.status {
+        case .pending:
+            ("⏳", Theme.highSoft, Text("Waiting for a parent to check **\(place.emoji) \(place.name)**"))
+        case .approved:
+            ("✅", Theme.doneSoft, Text("**\(place.emoji) \(place.name)** was added")
+                + Text(decider.map { " by \($0.name)" } ?? "")
+                + Text(". You can pick it for your tasks now."))
+        case .declined:
+            ("💬", Theme.surface2, Text("\(decider?.name ?? "A parent") said not now to **\(place.name)**"))
+        }
+        return HStack(alignment: .top, spacing: 12) {
+            Text(icon)
+                .font(.system(size: 17))
+                .frame(width: 36, height: 36)
+                .background(tint, in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                message.font(.system(size: 14)).foregroundStyle(Theme.ink)
+                Text((request.decidedAt ?? request.date).formatted(.relative(presentation: .named)))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.ink3)
+                smallButton(request.status == .pending ? "Cancel request" : "OK", filled: false) {
+                    store.dismissPlaceRequest(request.id)
+                }
+                .padding(.top, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .transition(.opacity.combined(with: .move(edge: .leading)))
+    }
+
+    private func smallButton(_ title: String, filled: Bool, color: Color = Theme.ink,
+                             action: @escaping () -> Void) -> some View {
         Button {
             withAnimation(Theme.spring, action)
         } label: {
@@ -136,7 +238,7 @@ struct InboxView: View {
                 .foregroundStyle(filled ? .white : Theme.ink)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
-                .background(filled ? Theme.ink : Theme.surface2, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(filled ? color : Theme.surface2, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(PressableStyle())
     }

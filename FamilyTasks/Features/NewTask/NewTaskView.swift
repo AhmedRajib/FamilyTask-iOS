@@ -22,6 +22,8 @@ struct NewTaskView: View {
     @State private var showWhen = false
     @State private var showLocation = false
     @State private var didSetUp = false
+    /// Drives the form's entrance: sections arrive top to bottom.
+    @State private var appeared = false
     @FocusState private var focus: Field?
 
     private enum Field { case title, notes, checklist }
@@ -42,20 +44,32 @@ struct NewTaskView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                quickStart
-                titleCard
+                quickStart.reveal(appeared, order: 0, distance: 10)
+                titleCard.reveal(appeared, order: 1)
 
-                SectionLabel("Assign to").padding(.top, 20).padding(.bottom, 8)
-                assignCard
+                Group {
+                    SectionLabel("Assign to").padding(.top, 20).padding(.bottom, 8)
+                    assignCard
+                }
+                .reveal(appeared, order: 2)
 
-                SectionLabel("Priority").padding(.top, 20).padding(.bottom, 8)
-                prioritySegment
+                Group {
+                    SectionLabel("Priority").padding(.top, 20).padding(.bottom, 8)
+                    prioritySegment
+                }
+                .reveal(appeared, order: 3)
 
-                SectionLabel("Details").padding(.top, 20).padding(.bottom, 8)
-                detailsCard
+                Group {
+                    SectionLabel("Details").padding(.top, 20).padding(.bottom, 8)
+                    detailsCard
+                }
+                .reveal(appeared, order: 4)
 
-                SectionLabel("Checklist").padding(.top, 20).padding(.bottom, 8)
-                checklistCard
+                Group {
+                    SectionLabel("Checklist").padding(.top, 20).padding(.bottom, 8)
+                    checklistCard
+                }
+                .reveal(appeared, order: 5)
 
                 if isJustMe {
                     privateToggle
@@ -73,14 +87,15 @@ struct NewTaskView: View {
         .navigationTitle("New Task")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) { saveBar.reveal(appeared, order: 6, distance: 40) }
         .navigationDestination(isPresented: $showLocation) {
-            LocationPickerView(location: $location)
+            LocationPickerView(location: $location, taskTitle: trimmedTitle)
         }
         .sheet(isPresented: $showWhen) {
             WhenPickerSheet(dueDate: $dueDate, isAllDay: $isAllDay, times: store.family.times)
         }
         .onAppear(perform: setUp)
+        .startsEntrance($appeared)
         .onChange(of: assignees) { _ in
             if !urgentAllowed && priority == .urgent { priority = .high }
             if !isJustMe { isPrivate = false }
@@ -172,7 +187,9 @@ struct NewTaskView: View {
     private var assignCard: some View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 14) {
-                ForEach(store.family.members) { assignButton($0) }
+                ForEach(Array(store.family.members.enumerated()), id: \.element.id) { index, member in
+                    assignButton(member).popIn(appeared, order: 3 + index)
+                }
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 14)

@@ -5,6 +5,9 @@ struct CalendarView: View {
     @EnvironmentObject private var router: Router
     @State private var selectedDay = Calendar.current.startOfDay(for: .now)
     @Namespace private var namespace
+    @State private var appeared = false
+    /// Which way the tasks slide when the day changes: later days come in from the right.
+    @State private var forward = true
 
     private let calendar = Calendar.current
 
@@ -26,6 +29,7 @@ struct CalendarView: View {
                     weekButton("chevron.right", by: 7, label: "Next week")
                 }
                 .padding(.top, 8)
+                .reveal(appeared, order: 0, distance: -10)
 
                 weekStrip
 
@@ -35,16 +39,19 @@ struct CalendarView: View {
                         .contentTransition(.numericText())
                     Spacer()
                     if !calendar.isDateInToday(selectedDay) {
-                        Button("Today") { withAnimation(Theme.spring) { selectedDay = calendar.startOfDay(for: .now) } }
+                        Button("Today") { select(calendar.startOfDay(for: .now)) }
                             .font(.system(size: 14, weight: .semibold))
                     }
                 }
+                .reveal(appeared, order: 8)
 
+                Group {
                 if dayTasks.isEmpty {
                     EmptyStateView(emoji: "🌤️", title: "Nothing planned", message: "No tasks due on this day.")
+                        .reveal(appeared, order: 9)
                 } else {
                     LazyVStack(spacing: 10) {
-                        ForEach(dayTasks) { task in
+                        ForEach(Array(dayTasks.enumerated()), id: \.element.id) { index, task in
                             HStack(alignment: .top, spacing: 10) {
                                 Text(task.isAllDay ? "All day" : task.dueDate!.formatted(date: .omitted, time: .shortened))
                                     .font(.system(size: 11.5, weight: .semibold))
@@ -57,9 +64,16 @@ struct CalendarView: View {
                                     .accessibilityAddTraits(.isButton)
                             }
                             .transition(.opacity)
+                            .reveal(appeared, order: 9 + index, distance: 24, step: 0.06)
                         }
                     }
                 }
+                }
+                // A new day's list slides in from the side you moved towards.
+                .id(selectedDay)
+                .transition(.asymmetric(
+                    insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+                    removal: .opacity))
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
@@ -67,18 +81,19 @@ struct CalendarView: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background)
+        .startsEntrance($appeared, isActive: router.tab == .calendar)
         .navigationTitle("Calendar")
         .toolbar(.hidden, for: .navigationBar)
     }
 
     private var weekStrip: some View {
         HStack(spacing: 4) {
-            ForEach(week, id: \.self) { day in
+            ForEach(Array(week.enumerated()), id: \.element) { index, day in
                 let isSelected = calendar.isDate(day, inSameDayAs: selectedDay)
                 let isToday = calendar.isDateInToday(day)
                 let priorities = Array(store.tasks(on: day).filter { !$0.isDone }.map(\.priority).prefix(3))
                 Button {
-                    withAnimation(Theme.spring) { selectedDay = day }
+                    select(day)
                 } label: {
                     VStack(spacing: 3) {
                         Text(day.formatted(.dateTime.weekday(.abbreviated)))
@@ -110,6 +125,7 @@ struct CalendarView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .reveal(appeared, order: 1 + index, distance: 12, step: 0.04)
             }
         }
         .haptic(.selection, trigger: selectedDay)
@@ -117,10 +133,14 @@ struct CalendarView: View {
 
     private func weekButton(_ icon: String, by days: Int, label: String) -> some View {
         IconButton(systemImage: icon, label: label) {
-            withAnimation(Theme.spring) {
-                selectedDay = calendar.date(byAdding: .day, value: days, to: selectedDay) ?? selectedDay
-            }
+            select(calendar.date(byAdding: .day, value: days, to: selectedDay) ?? selectedDay)
         }
+    }
+
+    private func select(_ day: Date) {
+        guard day != selectedDay else { return }
+        forward = day > selectedDay
+        withAnimation(Theme.spring) { selectedDay = day }
     }
 }
 

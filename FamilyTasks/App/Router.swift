@@ -39,6 +39,8 @@ enum Route: Hashable {
     case editTemplate(UUID?)
     case editPlace(UUID?)
     case editTime(UUID?)
+    /// A parent checks a child's place request (pre-filled New place).
+    case reviewPlaceRequest(UUID)
     case addMember
     case invite(memberID: UUID)
     case memberProfile(UUID)

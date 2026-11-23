@@ -107,6 +107,7 @@ struct RouteView: View {
         case .editTemplate(let id): TemplateEditorView(templateID: id)
         case .editPlace(let id): PlaceEditorView(placeID: id)
         case .editTime(let id): TimeEditorView(timeID: id)
+        case .reviewPlaceRequest(let id): PlaceEditorView(placeID: nil, requestID: id)
         case .addMember: AddMemberView()
         case .invite(let id): InviteView(memberID: id)
         case .memberProfile(let id): MemberProfileView(memberID: id)
@@ -143,12 +144,19 @@ struct FamilyTabBar: View {
             .accessibilityLabel("New task")
             .haptic(.light, trigger: router.isAtRoot) { _, atRoot in !atRoot }
             item(.family)
-            item(.inbox, badge: !store.incomingRequests.isEmpty || !store.premiumRequests.isEmpty)
+            item(.inbox, badge: !store.incomingRequests.isEmpty || !store.premiumRequests.isEmpty
+                   || !store.pendingPlaceRequests.isEmpty
+                   || store.myPlaceRequests.contains { $0.status != .pending })
         }
         .padding(.top, 8)
         .frame(height: 58, alignment: .top)
-        .background(Theme.surface.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        // The divider sits in the background so the raised ＋ button covers it.
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                Theme.surface.ignoresSafeArea(edges: .bottom)
+                Rectangle().fill(Theme.line).frame(height: 1)
+            }
+        }
     }
 
     private func item(_ tab: AppTab, badge: Bool = false) -> some View {

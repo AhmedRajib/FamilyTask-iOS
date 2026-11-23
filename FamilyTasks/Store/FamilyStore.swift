@@ -137,6 +137,11 @@ final class FamilyStore: ObservableObject {
     // MARK: - Changes
 
     func add(_ task: FamilyTask) {
+        var task = task
+        // Children can only use family places; new ones go through a place request first.
+        if !permissions.canManageShortcuts, task.location?.custom != nil {
+            task.location = nil
+        }
         tasks.append(task)
         save()
     }
@@ -278,6 +283,7 @@ final class FamilyStore: ObservableObject {
     func removeMember(_ id: UUID) {
         guard canRemove(id) else { return }
         family.members.removeAll { $0.id == id }
+        family.placeRequests?.removeAll { $0.memberID == id }
         for i in tasks.indices { tasks[i].assigneeIDs.removeAll { $0 == id } }
         tasks.removeAll { $0.assigneeIDs.isEmpty || ($0.isPrivate && $0.creatorID == id) }
         save()
@@ -335,6 +341,75 @@ final class FamilyStore: ObservableObject {
 
     func templates(usingPlace id: UUID) -> [TaskTemplate] { family.templates.filter { $0.placeID == id } }
     func templates(usingTime id: UUID) -> [TaskTemplate] { family.templates.filter { $0.timeShortcutID == id } }
+
+    // MARK: - Place requests (child finds it on the map → a parent or adult approves)
+
+    /// Waiting for me to check, newest first. Only people who can manage places see these.
+    var pendingPlaceRequests: [PlaceRequest] {
+        guard permissions.canManageShortcuts else { return [] }
+        return (family.placeRequests ?? []).filter { $0.status == .pending }.sorted { $0.date > $1.date }
+    }
+
+    /// My own requests: still waiting, or answered and not yet cleared.
+    var myPlaceRequests: [PlaceRequest] {
+        (family.placeRequests ?? [])
+            .filter { $0.memberID == currentMemberID && !$0.isDismissed }
+            .sorted { $0.date > $1.date }
+    }
+
+    func placeRequest(_ id: UUID?) -> PlaceRequest? { family.placeRequests?.first { $0.id == id } }
+
+    /// Same name already waiting from me? Then don't ask twice.
+    func hasPendingPlaceRequest(named name: String) -> Bool {
+        myPlaceRequests.contains {
+            $0.status == .pending && $0.place.name.caseInsensitiveCompare(name) == .orderedSame
+        }
+    }
+
+    @discardableResult
+    func requestPlace(_ place: Place, hint: String, forTaskTitle: String?) -> Bool {
+        guard !permissions.canManageShortcuts, !hasPendingPlaceRequest(named: place.name) else { return false }
+        let request = PlaceRequest(memberID: currentMemberID, place: place, hint: hint,
+                                   forTaskTitle: forTaskTitle?.isEmpty == false ? forTaskTitle : nil)
+        family.placeRequests = (family.placeRequests ?? []) + [request]
+        save()
+        return true
+    }
+
+    /// Adds the place (as the child drew it, or as the parent edited it) to family places.
+    func approvePlaceRequest(_ id: UUID, as place: Place? = nil) {
+        guard permissions.canManageShortcuts, let i = placeRequestIndex(id),
+              family.placeRequests?[i].status == .pending, let request = family.placeRequests?[i] else { return }
+        let final = place ?? request.place
+        upsert(final, into: &family.places)
+        family.placeRequests?[i].status = .approved
+        family.placeRequests?[i].approvedPlaceID = final.id
+        family.placeRequests?[i].decidedBy = currentMemberID
+        family.placeRequests?[i].decidedAt = .now
+        save()
+    }
+
+    func declinePlaceRequest(_ id: UUID) {
+        guard permissions.canManageShortcuts, let i = placeRequestIndex(id),
+              family.placeRequests?[i].status == .pending else { return }
+        family.placeRequests?[i].status = .declined
+        family.placeRequests?[i].decidedBy = currentMemberID
+        family.placeRequests?[i].decidedAt = .now
+        save()
+    }
+
+    /// The child clears an answered request from their Inbox (or cancels one still waiting).
+    func dismissPlaceRequest(_ id: UUID) {
+        guard let i = placeRequestIndex(id), family.placeRequests?[i].memberID == currentMemberID else { return }
+        if family.placeRequests?[i].status == .pending {
+            family.placeRequests?.remove(at: i)
+        } else {
+            family.placeRequests?[i].isDismissed = true
+        }
+        save()
+    }
+
+    private func placeRequestIndex(_ id: UUID) -> Int? { family.placeRequests?.firstIndex { $0.id == id } }
 
     private func upsert<T: Identifiable>(_ item: T, into list: inout [T]) {
         if let i = list.firstIndex(where: { $0.id == item.id }) { list[i] = item } else { list.append(item) }
