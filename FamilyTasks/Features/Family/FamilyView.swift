@@ -3,6 +3,7 @@ import SwiftUI
 struct FamilyView: View {
     @EnvironmentObject private var store: FamilyStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var gate: PremiumGate
     @EnvironmentObject private var session: AppSession
 
     var body: some View {
@@ -20,6 +21,17 @@ struct FamilyView: View {
                 householdCard.padding(.top, 14)
 
                 VStack(spacing: 0) {
+                    if store.permissions.canPay || store.isPremium {
+                        Button(action: premiumTapped) {
+                            DetailRow(icon: "sparkles", tint: Theme.high, title: "Family Premium",
+                                      value: premiumValue,
+                                      valueColor: store.isPremium ? Theme.done : Theme.highText,
+                                      showsChevron: store.permissions.canPay)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!store.permissions.canPay)
+                        RowDivider()
+                    }
                     Button { router.push(.shortcuts) } label: {
                         DetailRow(
                             icon: "bolt.fill", tint: Theme.high, title: "Shortcuts",
@@ -64,6 +76,22 @@ struct FamilyView: View {
         .background(Theme.background)
         .navigationTitle("Family")
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var premiumValue: String {
+        guard let premium = store.family.premium, premium.isActive else { return "Upgrade" }
+        return premium.isTrial
+            ? "Trial until \(premium.expiresAt.formatted(.dateTime.day().month(.abbreviated)))"
+            : "Active"
+    }
+
+    /// Parents: manage the subscription if there is one, otherwise open the paywall.
+    private func premiumTapped() {
+        if store.isPremium {
+            Task { await PremiumStore.shared.showManageSubscriptions() }
+        } else {
+            gate.present(for: nil, in: store)
+        }
     }
 
     private var householdCard: some View {

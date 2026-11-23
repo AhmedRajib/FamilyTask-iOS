@@ -5,20 +5,27 @@ import SwiftUI
 struct InboxView: View {
     @EnvironmentObject private var store: FamilyStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var gate: PremiumGate
 
     var body: some View {
         let requests = store.incomingRequests
         let completed = store.completedForMe
         let declined = store.declinedForMe
+        let premiumRequests = store.premiumRequests
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ScreenTitle("Inbox").padding(.top, 8)
 
-                if requests.isEmpty && completed.isEmpty && declined.isEmpty {
+                if requests.isEmpty && completed.isEmpty && declined.isEmpty && premiumRequests.isEmpty {
                     EmptyStateView(emoji: "📭", title: "You're all caught up",
                                    message: "Requests and updates on tasks you created show up here.")
                         .padding(.top, 40)
+                }
+
+                if !premiumRequests.isEmpty {
+                    SectionLabel("Premium requests").padding(.top, 20).padding(.bottom, 4)
+                    ForEach(premiumRequests) { premiumRow($0) }
                 }
 
                 if !requests.isEmpty {
@@ -60,6 +67,7 @@ struct InboxView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
             .animation(Theme.spring, value: requests.map(\.id))
+            .animation(Theme.spring, value: premiumRequests.map(\.id))
         }
         .scrollIndicators(.hidden)
         .background(Theme.background)
@@ -91,6 +99,31 @@ struct InboxView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
         .contentShape(Rectangle())
         .onTapGesture { router.push(.taskDetail(task.id)) }
+        .transition(.opacity.combined(with: .move(edge: .leading)))
+    }
+
+    /// "Ali would like Stars & rewards ⭐" — Unlock opens the paywall (screen 9).
+    private func premiumRow(_ request: PremiumRequest) -> some View {
+        let who = store.member(request.memberID)
+        return HStack(alignment: .top, spacing: 12) {
+            if let who { AvatarView(member: who, size: 36) }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("**\(who?.name ?? "Someone")** would like **\(request.feature.shortTitle)** \(request.feature.emoji)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.ink)
+                Text(request.date.formatted(.relative(presentation: .named)))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.ink3)
+                HStack(spacing: 6) {
+                    smallButton("Unlock", filled: true) { gate.present(for: request.feature, in: store) }
+                    smallButton("Not now", filled: false) { store.dismissPremiumRequest(request.id) }
+                }
+                .padding(.top, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
         .transition(.opacity.combined(with: .move(edge: .leading)))
     }
 

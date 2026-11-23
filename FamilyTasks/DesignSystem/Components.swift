@@ -240,5 +240,6 @@ extension View {
         environmentObject(FamilyStore.preview())
             .environmentObject(Router())
             .environmentObject(AppSession.preview)
+            .environmentObject(PremiumGate())
     }
 }

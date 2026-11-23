@@ -27,7 +27,9 @@ struct RootView: View {
 
 struct MainTabsView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var store: FamilyStore
     @StateObject private var router = Router()
+    @StateObject private var gate = PremiumGate()
 
     var body: some View {
         ZStack {
@@ -52,6 +54,17 @@ struct MainTabsView: View {
         }
         .animation(.quick(0.3), value: router.isAtRoot)
         .environmentObject(router)
+        .environmentObject(gate)
+        // 9 · Payment (parents) and 9b · Locked feature (everyone else).
+        .fullScreenCover(isPresented: $gate.showPaywall) {
+            PaywallView(feature: gate.paywallFeature)
+                .environmentObject(store)
+                .environmentObject(router)
+        }
+        .sheet(item: $gate.lockedFeature) { feature in
+            LockedFeatureSheet(feature: feature).environmentObject(store)
+        }
+        .task { await syncPremium() }
         .onAppear {
             // Right after creating a family, go straight to adding the first member.
             guard session.shouldPromptAddMember else { return }
@@ -59,6 +72,17 @@ struct MainTabsView: View {
             router.tab = .family
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { router.push(.addMember) }
         }
+    }
+
+    /// Picks up renewals (or a purchase made on another device with this Apple ID) on launch.
+    private func syncPremium() async {
+        let premium = PremiumStore.shared
+        await premium.load()
+        guard store.permissions.canPay, let subscription = premium.subscription,
+              subscription.expiresAt > (store.family.premium?.expiresAt ?? .distantPast) else { return }
+        store.activatePremium(productID: subscription.productID,
+                              expiresAt: subscription.expiresAt,
+                              isTrial: subscription.isTrial)
     }
 
     @ViewBuilder
@@ -116,7 +140,7 @@ struct FamilyTabBar: View {
             .accessibilityLabel("New task")
             .haptic(.light, trigger: router.isAtRoot) { _, atRoot in !atRoot }
             item(.family)
-            item(.inbox, badge: !store.incomingRequests.isEmpty)
+            item(.inbox, badge: !store.incomingRequests.isEmpty || !store.premiumRequests.isEmpty)
         }
         .padding(.top, 8)
         .frame(height: 58, alignment: .top)
