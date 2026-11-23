@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// "When?" — two plain questions: Which day? What time?
-/// The calendar and time wheel only open when asked for.
+/// Family times are one row of chips; a custom time row is always on screen.
 struct WhenPickerSheet: View {
     @Binding var dueDate: Date?
     @Binding var isAllDay: Bool
@@ -14,9 +14,8 @@ struct WhenPickerSheet: View {
     @State private var day: DayChoice = .today
     @State private var otherDay = Date.now
     @State private var time: TimeChoice = .anyTime
-    @State private var exactTime = Date.now
+    @State private var exactTime = Self.nextQuarterHour()
     @State private var showCalendar = false
-    @State private var showWheel = false
     @State private var didLoad = false
 
     private let calendar = Calendar.current
@@ -47,42 +46,12 @@ struct WhenPickerSheet: View {
                     }
 
                     question("What time?")
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible())], spacing: 8) {
-                        ForEach(times) { shortcut in
-                            let passed = shortcut.date(on: selectedDay) < .now
-                            tile(emoji: shortcut.emoji, title: shortcut.name,
-                                 detail: passed ? "Passed" : shortcut.timeText,
-                                 isOn: time == .shortcut(shortcut.id)) {
-                                time = .shortcut(shortcut.id)
-                                showWheel = false
-                            }
-                            .disabled(passed)
-                            .opacity(passed ? 0.4 : 1)
-                        }
-                        tile(emoji: "🕐", title: "Exact time…",
-                             detail: time == .exact ? exactTime.formatted(date: .omitted, time: .shortened) : "Choose",
-                             isOn: time == .exact) {
-                            time = .exact
-                            showWheel.toggle()
-                        }
-                        tile(emoji: "☀️", title: "Any time", detail: "No set time", isOn: time == .anyTime) {
-                            time = .anyTime
-                            showWheel = false
-                        }
-                    }
-                    if showWheel {
-                        DatePicker("Time", selection: $exactTime, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(.wheel)
-                            .labelsHidden()
-                            .frame(maxWidth: .infinity)
-                            .card(padding: 0)
-                            .padding(.top, 8)
-                            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
-                    }
+                    timeChips
+                    customTimeRow
+                        .padding(.top, 10)
                 }
                 .padding(20)
                 .animation(Theme.spring, value: showCalendar)
-                .animation(Theme.spring, value: showWheel)
                 .animation(.quick(0.25), value: day)
                 .animation(.quick(0.25), value: time)
             }
@@ -198,10 +167,12 @@ struct WhenPickerSheet: View {
         guard let current = dueDate else {
             day = .today
             if let next = times.first(where: { $0.date(on: today) > .now }) {
-                time = .shortcut(next.id)
-            } else {
+                pick(next)
+            } else if let first = times.first {
                 day = .tomorrow
-                time = times.first.map { .shortcut($0.id) } ?? .anyTime
+                pick(first)
+            } else {
+                time = .exact
             }
             return
         }
@@ -214,14 +185,39 @@ struct WhenPickerSheet: View {
         if isAllDay {
             time = .anyTime
         } else {
-            let parts = calendar.dateComponents([.hour, .minute], from: current)
-            if let match = times.first(where: { $0.hour == parts.hour && $0.minute == parts.minute }) {
-                time = .shortcut(match.id)
-            } else {
-                time = .exact
-                exactTime = current
-            }
+            setExact(current)
         }
+    }
+
+    /// Next 15-minute slot, so a fresh custom time is never already in the past.
+    private static func nextQuarterHour(from date: Date = .now, calendar: Calendar = .current) -> Date {
+        let minute = calendar.component(.minute, from: date)
+        let bumped = calendar.date(byAdding: .minute, value: 15 - minute % 15, to: date) ?? date
+        return calendar.date(bySetting: .second, value: 0, of: bumped) ?? bumped
+    }
+
+    private func pick(_ shortcut: TimeShortcut) {
+        time = .shortcut(shortcut.id)
+        exactTime = shortcut.date(on: selectedDay)
+    }
+
+    /// Any edit to the custom time selects it, or lights up the family time it matches.
+    private func setExact(_ date: Date) {
+        exactTime = date
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        if let match = times.first(where: { $0.hour == parts.hour && $0.minute == parts.minute }) {
+            time = .shortcut(match.id)
+        } else {
+            time = .exact
+        }
+    }
+
+    private func nudge(minutes: Int) {
+        setExact(calendar.date(byAdding: .minute, value: minutes, to: exactTime) ?? exactTime)
+    }
+
+    private var exactBinding: Binding<Date> {
+        Binding(get: { exactTime }, set: { setExact($0) })
     }
 
     // MARK: - Building blocks
@@ -274,26 +270,76 @@ struct WhenPickerSheet: View {
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
-    private func tile(emoji: String, title: String, detail: String, isOn: Bool,
-                      action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Text(emoji).font(.system(size: 22))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.85)
-                    Text(detail).font(.system(size: 12)).foregroundStyle(isOn ? .white.opacity(0.75) : Theme.ink2)
+    /// Family times that haven't passed on the chosen day, then "Any time".
+    private var timeChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(times.filter { $0.date(on: selectedDay) > .now }) { shortcut in
+                    chip("\(shortcut.emoji) \(shortcut.timeText)", isOn: time == .shortcut(shortcut.id)) {
+                        pick(shortcut)
+                    }
+                    .accessibilityLabel("\(shortcut.name), \(shortcut.timeText)")
                 }
-                Spacer(minLength: 0)
+                chip("☀️ Any time", isOn: time == .anyTime) { time = .anyTime }
+                    .accessibilityHint("No set time")
             }
-            .foregroundStyle(isOn ? .white : Theme.ink)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
-            .background(isOn ? Theme.ink : Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(isOn ? Theme.ink : Theme.line, lineWidth: 1.5))
+            .padding(.vertical, 1)
+        }
+    }
+
+    private func chip(_ label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isOn ? .white : Theme.ink)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(isOn ? Theme.ink : Theme.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(isOn ? Theme.ink : Theme.line, lineWidth: 1.5))
         }
         .buttonStyle(PressableStyle())
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    /// Always on screen: tap the time for the iOS picker, or nudge it.
+    private var customTimeRow: some View {
+        let isOn = time == .exact
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "clock")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.brand)
+                Text("Custom time")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                Spacer()
+                DatePicker("Custom time", selection: exactBinding, displayedComponents: .hourAndMinute)
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+                    .tint(Theme.brand)
+            }
+            HStack(spacing: 6) {
+                nudgeButton("−15m", minutes: -15, spoken: "15 minutes earlier")
+                nudgeButton("+15m", minutes: 15, spoken: "15 minutes later")
+                nudgeButton("+1h", minutes: 60, spoken: "1 hour later")
+            }
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(isOn ? Theme.ink : Theme.line, lineWidth: 1.5))
+        .opacity(time == .anyTime ? 0.6 : 1)
+    }
+
+    private func nudgeButton(_ label: String, minutes: Int, spoken: String) -> some View {
+        Button(label) { nudge(minutes: minutes) }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Theme.ink2)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(Theme.surface2, in: Capsule())
+            .buttonStyle(PressableStyle())
+            .accessibilityLabel(spoken)
     }
 }
 

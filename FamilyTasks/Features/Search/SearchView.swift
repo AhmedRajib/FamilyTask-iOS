@@ -169,7 +169,7 @@ struct SearchView: View {
         var haystack = [task.title, task.notes] + task.checklist.map(\.title)
         haystack += store.members(task.assigneeIDs).map(\.name)
         if let creator = store.member(task.creatorID) { haystack.append(creator.name) }
-        if let location = task.location, let place = store.place(location.placeID) {
+        if let location = task.location, let place = store.place(for: location) {
             haystack += [place.name, place.address]
         }
         let joined = haystack.joined(separator: " ")

@@ -20,6 +20,7 @@ struct NewTaskView: View {
     @State private var isPrivate = false
     @State private var activeTemplate: UUID?
     @State private var showWhen = false
+    @State private var showLocation = false
     @State private var didSetUp = false
     @FocusState private var focus: Field?
 
@@ -73,6 +74,9 @@ struct NewTaskView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
+        .navigationDestination(isPresented: $showLocation) {
+            LocationPickerView(location: $location)
+        }
         .sheet(isPresented: $showWhen) {
             WhenPickerSheet(dueDate: $dueDate, isAllDay: $isAllDay, times: store.family.times)
         }
@@ -272,8 +276,8 @@ struct NewTaskView: View {
     }
 
     private var locationText: String {
-        guard let location, let place = store.place(location.placeID) else { return "None" }
-        return "\(place.name) · \(location.trigger.title.lowercased())"
+        guard let location, let place = store.place(for: location) else { return "None" }
+        return "\(place.emoji) \(place.name) · \(location.trigger.title.lowercased())"
     }
 
     private var detailsCard: some View {
@@ -305,30 +309,13 @@ struct NewTaskView: View {
             .disabled(dueDate == nil)
 
             RowDivider()
-            Menu {
-                Button("None") { location = nil }
-                ForEach(store.family.places) { place in
-                    Button("\(place.emoji) \(place.name)") {
-                        location = LocationReminder(placeID: place.id, trigger: location?.trigger ?? .arriving)
-                    }
-                }
-                if location != nil {
-                    Picker("Remind when", selection: triggerBinding) {
-                        ForEach(PlaceTrigger.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }
-                }
-            } label: {
-                DetailRow(icon: "mappin", tint: Theme.done, title: "Location", value: locationText)
+            Button { showLocation = true } label: {
+                DetailRow(icon: "mappin", tint: Theme.done, title: "Location", value: locationText,
+                          valueColor: location == nil ? Theme.ink3 : Theme.ink)
             }
+            .buttonStyle(.plain)
         }
         .card(padding: 0)
-    }
-
-    private var triggerBinding: Binding<PlaceTrigger> {
-        Binding(
-            get: { location?.trigger ?? .arriving },
-            set: { location?.trigger = $0 }
-        )
     }
 
     // MARK: - Checklist

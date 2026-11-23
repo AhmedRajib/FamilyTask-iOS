@@ -321,8 +321,12 @@ enum PlaceTrigger: String, Codable, CaseIterable {
 }
 
 /// Fires only on the assignee's phone. Never reported to the server or to anyone else.
+/// Points at a saved family place (`placeID`) or carries its own one-off place (`custom`).
 struct LocationReminder: Codable, Hashable {
-    var placeID: UUID
+    /// A family place from Shortcuts. Optional so a task can use a one-off place instead.
+    var placeID: UUID? = nil
+    /// Somewhere only this task uses (a dentist, a friend's house). Not listed in Shortcuts.
+    var custom: Place? = nil
     var trigger: PlaceTrigger
 }
 

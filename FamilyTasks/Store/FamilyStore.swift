@@ -43,6 +43,12 @@ final class FamilyStore: ObservableObject {
     func time(_ id: UUID?) -> TimeShortcut? { family.times.first { $0.id == id } }
     func template(_ id: UUID?) -> TaskTemplate? { family.templates.first { $0.id == id } }
 
+    /// The place a location reminder points to: its own one-off place, or a family place.
+    func place(for location: LocationReminder?) -> Place? {
+        guard let location else { return nil }
+        return location.custom ?? place(location.placeID)
+    }
+
     /// Private tasks are visible only to the person who created them.
     var visibleTasks: [FamilyTask] {
         tasks.filter { !$0.isPrivate || $0.creatorID == currentMemberID }
@@ -278,6 +284,61 @@ final class FamilyStore: ObservableObject {
     }
 
     private func index(of id: UUID) -> Int? { family.members.firstIndex { $0.id == id } }
+
+    // MARK: - Shortcuts (parents & adults — shared by the whole family)
+
+    /// Adds the template, or replaces the one with the same id.
+    func saveTemplate(_ template: TaskTemplate) {
+        guard permissions.canManageShortcuts else { return }
+        upsert(template, into: &family.templates)
+        save()
+    }
+
+    func deleteTemplate(_ id: UUID) {
+        guard permissions.canManageShortcuts else { return }
+        family.templates.removeAll { $0.id == id }
+        save()
+    }
+
+    func savePlace(_ place: Place) {
+        guard permissions.canManageShortcuts else { return }
+        upsert(place, into: &family.places)
+        save()
+    }
+
+    /// Quick tasks that used it keep working without a place. Existing tasks are left alone.
+    func deletePlace(_ id: UUID) {
+        guard permissions.canManageShortcuts else { return }
+        family.places.removeAll { $0.id == id }
+        for i in family.templates.indices where family.templates[i].placeID == id {
+            family.templates[i].placeID = nil
+        }
+        save()
+    }
+
+    func saveTime(_ time: TimeShortcut) {
+        guard permissions.canManageShortcuts else { return }
+        upsert(time, into: &family.times)
+        family.times.sort { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
+        save()
+    }
+
+    /// Quick tasks that used it keep working without a set time. Existing tasks are left alone.
+    func deleteTime(_ id: UUID) {
+        guard permissions.canManageShortcuts else { return }
+        family.times.removeAll { $0.id == id }
+        for i in family.templates.indices where family.templates[i].timeShortcutID == id {
+            family.templates[i].timeShortcutID = nil
+        }
+        save()
+    }
+
+    func templates(usingPlace id: UUID) -> [TaskTemplate] { family.templates.filter { $0.placeID == id } }
+    func templates(usingTime id: UUID) -> [TaskTemplate] { family.templates.filter { $0.timeShortcutID == id } }
+
+    private func upsert<T: Identifiable>(_ item: T, into list: inout [T]) {
+        if let i = list.firstIndex(where: { $0.id == item.id }) { list[i] = item } else { list.append(item) }
+    }
 
     // MARK: - Premium (one subscription for the whole family)
 

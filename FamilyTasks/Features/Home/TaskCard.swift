@@ -71,7 +71,7 @@ struct TaskCard: View {
                     .fontWeight(hot ? .semibold : .medium)
                     .fixedSize()
             }
-            if showPlace, let location = task.location, let place = store.place(location.placeID) {
+            if showPlace, let location = task.location, let place = store.place(for: location) {
                 meta(place.name, icon: "mappin").fixedSize()
             }
             if showChecklist, !task.checklist.isEmpty {

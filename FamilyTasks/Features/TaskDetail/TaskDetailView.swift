@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 struct TaskDetailView: View {
     @EnvironmentObject private var store: FamilyStore
@@ -39,6 +40,9 @@ struct TaskDetailView: View {
 
                 infoGrid(task, creator: creator)
                     .padding(.top, 18)
+                if let location = task.location, let place = store.place(for: location) {
+                    locationCard(place, trigger: location.trigger)
+                }
 
                 if !task.checklist.isEmpty {
                     checklist(task).padding(.top, 20)
@@ -156,11 +160,6 @@ struct TaskDetailView: View {
                 Label(DueFormat.short(task) ?? "No date", systemImage: "clock")
                     .foregroundStyle(DueFormat.isOverdue(task) ? Theme.urgent : Theme.ink)
             }
-            if let location = task.location, let place = store.place(location.placeID) {
-                InfoTile(label: location.trigger == .arriving ? "When arriving" : "When leaving") {
-                    Label(place.name, systemImage: "mappin")
-                }
-            }
             if task.repeatRule != .never {
                 InfoTile(label: "Repeats") { Label(task.repeatRule.title, systemImage: "repeat") }
             }
@@ -168,6 +167,38 @@ struct TaskDetailView: View {
                 InfoTile(label: "Reminder") { Label(task.reminder.title, systemImage: "bell") }
             }
         }
+    }
+
+    // MARK: - Location
+
+    private func locationCard(_ place: Place, trigger: PlaceTrigger) -> some View {
+        HStack(spacing: 12) {
+            Text(place.emoji)
+                .font(.system(size: 17))
+                .frame(width: 34, height: 34)
+                .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(place.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text([place.address, trigger == .arriving ? "when arriving" : "when leaving"]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.ink3)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button("Directions") { openDirections(to: place) }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.brand)
+        }
+        .card(padding: 12)
+        .padding(.top, 8)
+    }
+
+    private func openDirections(to place: Place) {
+        let item = MKMapItem(placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)))
+        item.name = place.name
+        item.openInMaps()
     }
 
     // MARK: - Checklist

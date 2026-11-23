@@ -35,6 +35,10 @@ enum Route: Hashable {
     case newTask(templateID: UUID?)
     case taskDetail(UUID)
     case shortcuts
+    /// nil = new. Add / edit pages for family shortcuts.
+    case editTemplate(UUID?)
+    case editPlace(UUID?)
+    case editTime(UUID?)
     case addMember
     case invite(memberID: UUID)
     case memberProfile(UUID)
