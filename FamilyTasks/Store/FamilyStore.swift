@@ -226,6 +226,10 @@ final class FamilyStore: ObservableObject {
         copy.completedByID = nil
         copy.nextOccurrenceID = nil
         copy.createdAt = .now
+        // The next round starts with a clean conversation.
+        copy.comments = nil
+        copy.editedByID = nil
+        copy.editedAt = nil
         copy.checklist = task.checklist.map { ChecklistItem(title: $0.title) }
         return copy
     }
@@ -247,6 +251,30 @@ final class FamilyStore: ObservableObject {
         }
         save()
         return true
+    }
+
+    // MARK: Comments
+
+    /// Anyone who can see the task can comment on it.
+    func addComment(to taskID: UUID, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let i = tasks.firstIndex(where: { $0.id == taskID }),
+              visibleTasks.contains(where: { $0.id == taskID }) else { return }
+        tasks[i].comments = tasks[i].allComments + [TaskComment(authorID: currentMemberID, text: trimmed)]
+        save()
+    }
+
+    /// People can delete their own comments; parents can delete any.
+    func canDeleteComment(_ comment: TaskComment) -> Bool {
+        comment.authorID == currentMemberID || permissions.canManageMembers
+    }
+
+    func deleteComment(_ commentID: UUID, from taskID: UUID) {
+        guard let i = tasks.firstIndex(where: { $0.id == taskID }),
+              let comment = tasks[i].allComments.first(where: { $0.id == commentID }),
+              canDeleteComment(comment) else { return }
+        tasks[i].comments = tasks[i].allComments.filter { $0.id != commentID }
+        save()
     }
 
     func toggleChecklistItem(task taskID: UUID, item itemID: UUID) {

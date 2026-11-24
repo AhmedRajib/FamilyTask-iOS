@@ -60,6 +60,12 @@ enum SampleData {
                     ChecklistItem(title: "Grab football kit from car", isDone: true),
                     ChecklistItem(title: "Sign attendance sheet"),
                     ChecklistItem(title: "Get snacks on the way"),
+                ],
+                comments: [
+                    TaskComment(authorID: nadia.id, text: "I'm stuck in a meeting, can you go?",
+                                createdAt: .now.addingTimeInterval(-50 * 60)),
+                    TaskComment(authorID: rajib.id, text: "On it 👍 leaving at 3.",
+                                createdAt: .now.addingTimeInterval(-40 * 60)),
                 ]
             ),
             FamilyTask(

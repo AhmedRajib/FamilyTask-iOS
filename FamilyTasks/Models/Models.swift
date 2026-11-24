@@ -394,6 +394,17 @@ struct FamilyTask: Identifiable, Codable, Hashable {
     /// Who last changed the task after it was created, so the creator can be told.
     var editedByID: UUID? = nil
     var editedAt: Date? = nil
+    /// Family chat on the task. Optional so tasks saved before comments existed still load.
+    var comments: [TaskComment]? = nil
 
     var isDone: Bool { status == .done }
+    var allComments: [TaskComment] { comments ?? [] }
+}
+
+/// A short message on a task, seen by everyone who can see the task.
+struct TaskComment: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var authorID: UUID
+    var text: String
+    var createdAt: Date = .now
 }

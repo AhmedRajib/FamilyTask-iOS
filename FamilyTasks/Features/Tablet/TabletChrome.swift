@@ -204,33 +204,40 @@ struct SidebarHouseholdCard: View {
         let total = progress.reduce(0) { $0 + $1.1.total }
 
         return VStack(alignment: .leading, spacing: 0) {
-            StreetScene(time: time, isShown: true)
-                .id(time)
-                .transition(.opacity)
-                .aspectRatio(308.0 / 92.0, contentMode: .fill)
-                .frame(height: 44)
-                .clipped()
+            // The whole street at the card's width, same proportions as the big Family card.
+            ZStack {
+                StreetScene(time: time, isShown: true)
+                    .id(time)
+                    .transition(.opacity)
+            }
+            .aspectRatio(308.0 / 92.0, contentMode: .fit)
+            .clipped()
+
             HStack(alignment: .top, spacing: 10) {
                 Text("🏡")
-                    .font(.system(size: 17))
-                    .frame(width: 34, height: 34)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
-                    // Sits half over the scene; the text stays on the card's light background.
-                    .padding(.top, -18)
-                VStack(alignment: .leading, spacing: 1) {
+                    .font(.system(size: 21))
+                    .frame(width: 42, height: 42)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white, lineWidth: 2.5))
+                    .shadow(color: .black.opacity(0.14), radius: 6, y: 3)
+                    // Sits half over the scene, like the big card.
+                    .padding(.top, -22)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(store.family.name)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Theme.ink)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     Text("\(done) of \(total) done this week")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11.5))
                         .foregroundStyle(Theme.ink2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
+                .padding(.top, 6)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
+            .padding(.horizontal, 12)
             // Same rule as the big card: each person's colour is their share of the week's tasks.
             GeometryReader { geo in
                 let shares = progress.filter { $0.1.done > 0 }
@@ -247,14 +254,15 @@ struct SidebarHouseholdCard: View {
                     .clipShape(Capsule())
                 }
             }
-            .frame(height: 5)
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
+            .frame(height: 6)
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
         }
         .background(LinearGradient(colors: time.cardColors, startPoint: .top, endPoint: .bottom))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.black.opacity(0.06)))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.black.opacity(0.06)))
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(store.family.name), \(done) of \(total) done this week")
         .accessibilityAddTraits(.isButton)

@@ -146,6 +146,7 @@ struct TaskDetailView: View {
                         .foregroundStyle(task.notes.isEmpty ? Theme.ink3 : Theme.ink2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .card()
+                    CommentsSection(task: task).padding(.top, 14)
                 }
                 // Facts get the room; notes keep a readable column.
                 .frame(minWidth: 190, idealWidth: 250, maxWidth: 300)
@@ -185,6 +186,8 @@ struct TaskDetailView: View {
                 if !task.checklist.isEmpty {
                     checklist(task).padding(.top, 20)
                 }
+
+                CommentsSection(task: task).padding(.top, 22)
             }
             .padding(20)
             .animation(Theme.spring, value: task.status)
