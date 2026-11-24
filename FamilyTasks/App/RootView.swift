@@ -187,6 +187,7 @@ struct RouteView: View {
     var body: some View {
         switch route {
         case .newTask(let templateID): NewTaskView(templateID: templateID)
+        case .editTask(let id): NewTaskView(templateID: nil, editingTaskID: id)
         case .taskDetail(let id): TaskDetailView(taskID: id)
         case .shortcuts: ShortcutsView()
         case .editTemplate(let id): TemplateEditorView(templateID: id)

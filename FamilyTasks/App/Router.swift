@@ -33,6 +33,8 @@ enum AppTab: CaseIterable {
 /// Pushed screens. New Task is a full page, like a navigation controller push.
 enum Route: Hashable {
     case newTask(templateID: UUID?)
+    /// The New Task form, filled in with an existing task.
+    case editTask(UUID)
     case taskDetail(UUID)
     case shortcuts
     /// nil = new. Add / edit pages for family shortcuts.
@@ -76,13 +78,22 @@ final class Router: ObservableObject {
 
     struct NewTaskRequest: Identifiable, Equatable {
         let id = UUID()
-        let templateID: UUID?
+        var templateID: UUID? = nil
+        /// Set for "Edit Task": the same form, filled in.
+        var editingTaskID: UUID? = nil
     }
 
     func push(_ route: Route) {
-        if layout.isTablet, case .newTask(let templateID) = route {
-            newTask = NewTaskRequest(templateID: templateID)
-            return
+        if layout.isTablet {
+            switch route {
+            case .newTask(let templateID):
+                newTask = NewTaskRequest(templateID: templateID)
+                return
+            case .editTask(let id):
+                newTask = NewTaskRequest(editingTaskID: id)
+                return
+            default: break
+            }
         }
         if layout == .expanded {
             switch (route, tab) {

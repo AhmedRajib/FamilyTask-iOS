@@ -39,8 +39,16 @@ struct TaskDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
         .toolbar {
-            if perms.canDelete(task) && !isPane {
-                moreMenu(task)
+            if !isPane {
+                if perms.canEdit(task) {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") { router.push(.editTask(task.id)) }
+                            .fontWeight(.semibold)
+                    }
+                }
+                if perms.canDelete(task) {
+                    ToolbarItem(placement: .primaryAction) { moreMenu(task) }
+                }
             }
         }
         .confirmationDialog("Delete this task?", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -75,19 +83,34 @@ struct TaskDetailView: View {
         .accessibilityLabel("More")
     }
 
+    @ViewBuilder
+    private func editedLine(_ task: FamilyTask) -> some View {
+        if let editorID = task.editedByID, let editedAt = task.editedAt {
+            let editor = store.member(editorID)
+            Label("Edited by \(editor?.id == me.id ? "you" : editor?.name ?? "someone") · \(editedAt.formatted(.relative(presentation: .named)))",
+                  systemImage: "pencil")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.ink3)
+        }
+    }
+
     // MARK: - Tablet layout (T1 detail)
 
     /// Header, then two columns: facts and checklist on the left, notes on the right.
     private func wideContent(_ task: FamilyTask, creator: Member?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if isPane && perms.canDelete(task) {
-                HStack {
+            if isPane && (perms.canEdit(task) || perms.canDelete(task)) {
+                HStack(spacing: 8) {
                     Spacer()
-                    moreMenu(task)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.line))
+                    if perms.canEdit(task) {
+                        Button { router.push(.editTask(task.id)) } label: {
+                            Image(systemName: "pencil").paneButton()
+                        }
+                        .accessibilityLabel("Edit task")
+                    }
+                    if perms.canDelete(task) {
+                        moreMenu(task).paneButton()
+                    }
                 }
                 .padding(.bottom, 4)
             }
@@ -99,7 +122,8 @@ struct TaskDetailView: View {
                 .foregroundStyle(task.isDone ? Theme.ink3 : Theme.ink)
                 .strikethrough(task.isDone, color: Theme.ink3)
                 .padding(.top, 2)
-                .padding(.bottom, 14)
+                .padding(.bottom, task.editedByID == nil ? 14 : 4)
+            editedLine(task).padding(.bottom, 14)
 
             statusBanner(task, creator: creator)
 
@@ -150,6 +174,7 @@ struct TaskDetailView: View {
                         .foregroundStyle(Theme.ink2)
                         .padding(.top, 6)
                 }
+                editedLine(task).padding(.top, 8)
 
                 infoGrid(task, creator: creator)
                     .padding(.top, 18)
@@ -389,4 +414,15 @@ private struct InfoTile<Content: View>: View {
     return NavigationStack { TaskDetailView(taskID: store.tasks[0].id) }
         .environmentObject(store)
         .environmentObject(Router())
+}
+
+private extension View {
+    /// Square top-right button in the tablet detail pane.
+    func paneButton() -> some View {
+        font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+            .frame(width: 40, height: 40)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.line))
+    }
 }

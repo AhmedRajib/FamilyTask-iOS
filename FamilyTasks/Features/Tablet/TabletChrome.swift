@@ -407,7 +407,7 @@ struct NewTaskSheetOverlay: View {
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
             NavigationStack {
-                NewTaskView(templateID: request.templateID) {
+                NewTaskView(templateID: request.templateID, editingTaskID: request.editingTaskID) {
                     withAnimation(Theme.spring) { router.newTask = nil }
                 }
             }

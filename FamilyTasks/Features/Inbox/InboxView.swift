@@ -12,6 +12,7 @@ struct InboxView: View {
         let requests = store.incomingRequests
         let completed = store.completedForMe
         let declined = store.declinedForMe
+        let edited = store.editedForMe
         let premiumRequests = store.premiumRequests
         let placeRequests = store.pendingPlaceRequests
         let myPlaceRequests = store.myPlaceRequests
@@ -20,7 +21,7 @@ struct InboxView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ScreenTitle("Inbox").padding(.top, 8)
 
-                if requests.isEmpty && completed.isEmpty && declined.isEmpty && premiumRequests.isEmpty
+                if requests.isEmpty && completed.isEmpty && declined.isEmpty && edited.isEmpty && premiumRequests.isEmpty
                     && placeRequests.isEmpty && myPlaceRequests.isEmpty {
                     EmptyStateView(emoji: "📭", title: "You're all caught up",
                                    message: "Requests and updates on tasks you created show up here.")
@@ -64,6 +65,16 @@ struct InboxView: View {
                         row(member: who, task: task, time: nil) {
                             Text("**\(who?.name ?? "Someone")** can't do **\(task.title)**")
                             + Text(task.declineReason.map { ": “\($0)”" } ?? "")
+                        } actions: { EmptyView() }
+                    }
+                }
+
+                if !edited.isEmpty {
+                    SectionLabel("Changed").padding(.top, 20).padding(.bottom, 4)
+                    ForEach(edited) { task in
+                        let who = task.editedByID.flatMap(store.member)
+                        row(member: who, task: task, time: task.editedAt) {
+                            Text("**\(who?.name ?? "Someone")** changed **\(task.title)** ✏️")
                         } actions: { EmptyView() }
                     }
                 }

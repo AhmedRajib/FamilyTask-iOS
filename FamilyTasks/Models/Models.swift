@@ -391,6 +391,9 @@ struct FamilyTask: Identifiable, Codable, Hashable {
     /// The repeat copy created when this was completed, removed again if it's reopened.
     var nextOccurrenceID: UUID? = nil
     var createdAt: Date = .now
+    /// Who last changed the task after it was created, so the creator can be told.
+    var editedByID: UUID? = nil
+    var editedAt: Date? = nil
 
     var isDone: Bool { status == .done }
 }
