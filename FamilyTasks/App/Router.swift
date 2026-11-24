@@ -33,6 +33,8 @@ enum AppTab: CaseIterable {
 /// Pushed screens. New Task is a full page, like a navigation controller push.
 enum Route: Hashable {
     case newTask(templateID: UUID?)
+    /// The New Task form, filled in with an existing task.
+    case editTask(UUID)
     case taskDetail(UUID)
     case shortcuts
     /// nil = new. Add / edit pages for family shortcuts.

@@ -34,7 +34,7 @@ final class FamilyStore: ObservableObject {
     // MARK: - Lookups
 
     var me: Member { member(currentMemberID) ?? family.members[0] }
-    var permissions: Permissions { Permissions(actor: me) }
+    var permissions: Permissions { Permissions(actor: me, members: family.members) }
 
     func member(_ id: UUID) -> Member? { family.members.first { $0.id == id } }
     func members(_ ids: [UUID]) -> [Member] { ids.compactMap(member) }
@@ -130,6 +130,13 @@ final class FamilyStore: ObservableObject {
             .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
     }
 
+    /// Tasks I created that someone else changed — the "creator is told about edits" rule.
+    var editedForMe: [FamilyTask] {
+        tasks
+            .filter { $0.creatorID == currentMemberID && $0.editedByID != nil && $0.editedByID != currentMemberID }
+            .sorted { ($0.editedAt ?? .distantPast) > ($1.editedAt ?? .distantPast) }
+    }
+
     var declinedForMe: [FamilyTask] {
         tasks.filter { $0.status == .declined && $0.creatorID == currentMemberID }
     }
@@ -143,6 +150,39 @@ final class FamilyStore: ObservableObject {
             task.location = nil
         }
         tasks.append(task)
+        save()
+    }
+
+    /// Saves changes to an existing task. Who did it is kept so the creator can be told.
+    /// Status, completion and repeat links stay as they are, except: new assignees get a fresh
+    /// request / open task (a declined task can be passed to someone else this way).
+    func update(_ edited: FamilyTask) {
+        guard let i = tasks.firstIndex(where: { $0.id == edited.id }), permissions.canEdit(tasks[i]) else { return }
+        let old = tasks[i]
+        var task = old
+        task.title = edited.title
+        task.notes = edited.notes
+        task.assigneeIDs = edited.assigneeIDs
+        task.priority = edited.priority
+        task.dueDate = edited.dueDate
+        task.isAllDay = edited.isAllDay
+        task.repeatRule = edited.repeatRule
+        task.reminder = edited.reminder
+        task.checklist = edited.checklist
+        task.location = edited.location
+        // Only the creator can make a task private, and only when it's just for them.
+        task.isPrivate = edited.isPrivate && old.creatorID == currentMemberID && edited.assigneeIDs == [old.creatorID]
+        // Children can only use family places; new ones go through a place request first.
+        if !permissions.canManageShortcuts, task.location?.custom != nil, task.location != old.location {
+            task.location = old.location
+        }
+        if Set(task.assigneeIDs) != Set(old.assigneeIDs), old.status != .done {
+            task.status = edited.status
+            task.declineReason = nil
+        }
+        task.editedByID = currentMemberID
+        task.editedAt = .now
+        tasks[i] = task
         save()
     }
 
@@ -212,6 +252,7 @@ final class FamilyStore: ObservableObject {
     }
 
     func delete(_ id: UUID) {
+        guard let task = task(id), permissions.canDelete(task) else { return }
         tasks.removeAll { $0.id == id }
         save()
     }

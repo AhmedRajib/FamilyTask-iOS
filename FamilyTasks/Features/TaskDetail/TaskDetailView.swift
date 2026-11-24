@@ -3,6 +3,7 @@ import MapKit
 
 struct TaskDetailView: View {
     @EnvironmentObject private var store: FamilyStore
+    @EnvironmentObject private var router: Router
     @Environment(\.dismiss) private var dismiss
     let taskID: UUID
 
@@ -37,6 +38,14 @@ struct TaskDetailView: View {
                         .foregroundStyle(Theme.ink2)
                         .padding(.top, 6)
                 }
+                if let editorID = task.editedByID, let editedAt = task.editedAt {
+                    let editor = store.member(editorID)
+                    Label("Edited by \(editor?.id == me.id ? "you" : editor?.name ?? "someone") · \(editedAt.formatted(.relative(presentation: .named)))",
+                          systemImage: "pencil")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.ink3)
+                        .padding(.top, 8)
+                }
 
                 infoGrid(task, creator: creator)
                     .padding(.top, 18)
@@ -56,15 +65,23 @@ struct TaskDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
         .toolbar {
-            if perms.canDelete(task) {
-                Menu {
-                    Button(role: .destructive) { confirmDelete = true } label: {
-                        Label("Delete task", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle").foregroundStyle(Theme.ink)
+            if perms.canEdit(task) {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { router.push(.editTask(task.id)) }
+                        .fontWeight(.semibold)
                 }
-                .accessibilityLabel("More")
+            }
+            if perms.canDelete(task) {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(role: .destructive) { confirmDelete = true } label: {
+                            Label("Delete task", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle").foregroundStyle(Theme.ink)
+                    }
+                    .accessibilityLabel("More")
+                }
             }
         }
         .confirmationDialog("Delete this task?", isPresented: $confirmDelete, titleVisibility: .visible) {

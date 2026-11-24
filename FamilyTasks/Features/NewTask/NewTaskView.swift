@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Full-screen "New Task" page, pushed from the ＋ button (or a quick-task shortcut).
+/// With `editingTaskID` it becomes "Edit Task": the same form, filled in, saving over the task.
 struct NewTaskView: View {
     @EnvironmentObject private var store: FamilyStore
     @Environment(\.dismiss) private var dismiss
     let templateID: UUID?
+    var editingTaskID: UUID? = nil
 
     @State private var title = ""
     @State private var notes = ""
@@ -30,7 +32,10 @@ struct NewTaskView: View {
 
     private var perms: Permissions { store.permissions }
     private var me: Member { store.me }
-    private var isJustMe: Bool { assignees == [me.id] }
+    private var editingTask: FamilyTask? { editingTaskID.flatMap(store.task) }
+    private var isEditing: Bool { editingTaskID != nil }
+    /// Private is only offered to the creator, for a task that's just for them.
+    private var isJustMe: Bool { assignees == [me.id] && (editingTask?.creatorID ?? me.id) == me.id }
     private var urgentAllowed: Bool { perms.canUseUrgent(assignees: assignees) }
 
     /// True when a child picks an adult: the task goes as a request.
@@ -44,7 +49,9 @@ struct NewTaskView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                quickStart.reveal(appeared, order: 0, distance: 10)
+                if !isEditing {
+                    quickStart.reveal(appeared, order: 0, distance: 10)
+                }
                 titleCard.reveal(appeared, order: 1)
 
                 Group {
@@ -84,7 +91,7 @@ struct NewTaskView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Theme.background)
-        .navigationTitle("New Task")
+        .navigationTitle(isEditing ? "Edit Task" : "New Task")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) { saveBar.reveal(appeared, order: 6, distance: 40) }
@@ -110,6 +117,10 @@ struct NewTaskView: View {
     private func setUp() {
         guard !didSetUp else { return }
         didSetUp = true
+        if let task = editingTask {
+            load(task)
+            return
+        }
         assignees = [me.id]
         if let template = store.template(templateID) {
             apply(template)
@@ -117,6 +128,20 @@ struct NewTaskView: View {
             // Wait for the push animation before raising the keyboard.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { focus = .title }
         }
+    }
+
+    private func load(_ task: FamilyTask) {
+        title = task.title
+        notes = task.notes
+        assignees = Set(task.assigneeIDs)
+        priority = task.priority
+        dueDate = task.dueDate
+        isAllDay = task.isAllDay
+        repeatRule = task.repeatRule
+        reminder = task.reminder
+        location = task.location
+        checklist = task.checklist
+        isPrivate = task.isPrivate
     }
 
     private func apply(_ template: TaskTemplate) {
@@ -406,6 +431,7 @@ struct NewTaskView: View {
             .map(\.name)
         let who = names.count <= 2 ? names.joined(separator: " & ") : "\(names.count) people"
         if assignees.isEmpty { return "Choose who it's for" }
+        if isEditing { return "Save changes" }
         if names.isEmpty { return "Save task" }
         if isRequest { return "Ask \(who)" }
         if priority == .urgent { return "Send urgent task to \(who)" }
@@ -427,6 +453,10 @@ struct NewTaskView: View {
     }
 
     private func save() {
+        if let original = editingTask {
+            saveChanges(to: original)
+            return
+        }
         let task = FamilyTask(
             title: trimmedTitle,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -444,6 +474,26 @@ struct NewTaskView: View {
         )
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(Theme.spring) { store.add(task) }
+        dismiss()
+    }
+
+    private func saveChanges(to original: FamilyTask) {
+        var task = original
+        task.title = trimmedTitle
+        task.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        task.assigneeIDs = store.family.members.map(\.id).filter(assignees.contains)
+        task.priority = priority
+        task.dueDate = dueDate
+        task.isAllDay = isAllDay
+        task.repeatRule = repeatRule
+        task.reminder = dueDate == nil ? .none : reminder
+        task.location = location
+        task.checklist = checklist.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
+        task.isPrivate = isJustMe && isPrivate
+        // Used only if the people changed: new assignees get a fresh request or task.
+        task.status = isRequest ? .requested : .open
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation(Theme.spring) { store.update(task) }
         dismiss()
     }
 }
