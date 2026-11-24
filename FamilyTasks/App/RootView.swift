@@ -8,9 +8,9 @@ struct RootView: View {
         Group {
             switch session.phase {
             case .signedOut:
-                WelcomeView().transition(.opacity)
+                WelcomeView().phoneWidth().transition(.opacity)
             case .needsFamily:
-                CreateOrJoinView().transition(.opacity)
+                CreateOrJoinView().phoneWidth().transition(.opacity)
             case .ready:
                 if let store = session.store {
                     MainTabsView()
@@ -25,6 +25,15 @@ struct RootView: View {
     }
 }
 
+private extension View {
+    /// Sign-in and family set-up keep the phone's width on a tablet, centred.
+    func phoneWidth() -> some View {
+        frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .background(Theme.background.ignoresSafeArea())
+    }
+}
+
 struct MainTabsView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var store: FamilyStore
@@ -32,27 +41,21 @@ struct MainTabsView: View {
     @StateObject private var gate = PremiumGate()
 
     var body: some View {
-        ZStack {
-            // All tabs stay alive so each keeps its scroll position and navigation stack.
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                let isSelected = router.tab == tab
-                NavigationStack(path: router.path(for: tab)) {
-                    rootView(for: tab)
-                        .navigationDestination(for: Route.self) { RouteView(route: $0) }
+        // Tablet design: the layout follows the window width (iPad Split View falls back to the phone).
+        GeometryReader { proxy in
+            let layout = LayoutClass(width: proxy.size.width)
+            chrome(layout)
+                .environment(\.layoutClass, layout)
+                .overlay {
+                    if let request = router.newTask {
+                        NewTaskSheetOverlay(request: request, available: proxy.size)
+                    }
                 }
-                .opacity(isSelected ? 1 : 0)
-                .allowsHitTesting(isSelected)
-                .accessibilityHidden(!isSelected)
-            }
+                .animation(Theme.spring, value: router.newTask)
+                .background(keyboardShortcuts)
+                .onAppear { router.layout = layout }
+                .onChange(of: layout) { router.layout = $0 }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Hidden on pushed pages such as New Task, which have their own bottom button.
-            if router.isAtRoot {
-                FamilyTabBar()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.quick(0.3), value: router.isAtRoot)
         .environmentObject(router)
         .environmentObject(gate)
         // 9 · Payment (parents) and 9b · Locked feature (everyone else).
@@ -66,6 +69,14 @@ struct MainTabsView: View {
         }
         .task { await syncPremium() }
         .onAppear {
+            #if DEBUG
+            // Simulator checks: `simctl launch … -startTab Calendar` opens that tab.
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-startTab"), i + 1 < args.count,
+               let tab = AppTab.allCases.first(where: { $0.title == args[i + 1] }) {
+                router.tab = tab
+            }
+            #endif
             // Right after creating a family, go straight to adding the first member.
             guard session.shouldPromptAddMember else { return }
             session.shouldPromptAddMember = false
@@ -85,13 +96,87 @@ struct MainTabsView: View {
                               isTrial: subscription.isTrial)
     }
 
+    // MARK: - Chrome per layout
+
+    @ViewBuilder
+    private func chrome(_ layout: LayoutClass) -> some View {
+        switch layout {
+        case .compact:
+            tabStacks
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    // Hidden on pushed pages such as New Task, which have their own bottom button.
+                    if router.isAtRoot {
+                        FamilyTabBar()
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.quick(0.3), value: router.isAtRoot)
+        case .medium:
+            // A real row above the screens (a safe-area inset is ignored by stacks with a hidden bar).
+            VStack(spacing: 0) {
+                if router.isAtRoot {
+                    TabletTopTabBar()
+                        .frame(maxWidth: .infinity)
+                        .background(Theme.background)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                tabStacks
+            }
+                .overlay(alignment: .bottomTrailing) {
+                    if router.isAtRoot {
+                        NewTaskFloatingButton().transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .animation(.quick(0.3), value: router.isAtRoot)
+        case .expanded:
+            HStack(spacing: 0) {
+                TabletSidebar()
+                Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
+                tabStacks
+            }
+        }
+    }
+
+    private var tabStacks: some View {
+        ZStack {
+            // All tabs stay alive so each keeps its scroll position and navigation stack.
+            ForEach(AppTab.allCases, id: \.self) { tab in
+                let isSelected = router.tab == tab
+                NavigationStack(path: router.path(for: tab)) {
+                    rootView(for: tab)
+                        .navigationDestination(for: Route.self) { RouteView(route: $0) }
+                }
+                .opacity(isSelected ? 1 : 0)
+                .allowsHitTesting(isSelected)
+                .accessibilityHidden(!isSelected)
+            }
+        }
+    }
+
+    /// Hardware keyboard: ⌘N new task, ⌘F search, ⌘1–4 tabs.
+    private var keyboardShortcuts: some View {
+        ZStack {
+            Button("New task") { router.push(.newTask(templateID: nil)) }
+                .keyboardShortcut("n", modifiers: .command)
+            Button("Search") { router.push(.search) }
+                .keyboardShortcut("f", modifiers: .command)
+            ForEach(Array(AppTab.allCases.enumerated()), id: \.element) { index, tab in
+                Button(tab.title) { router.tab = tab }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
+        }
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private func rootView(for tab: AppTab) -> some View {
         switch tab {
-        case .home: HomeView()
-        case .calendar: CalendarView()
-        case .family: FamilyView()
-        case .inbox: InboxView()
+        case .home: TaskListDetail(tab: .home) { HomeView() }
+        case .calendar: CalendarScreen()
+        case .family: FamilyListDetail()
+        case .inbox: TaskListDetail(tab: .inbox) { InboxView() }
         }
     }
 }

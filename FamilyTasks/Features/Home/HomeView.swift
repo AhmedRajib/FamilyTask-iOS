@@ -3,11 +3,16 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var store: FamilyStore
     @EnvironmentObject private var router: Router
+    @Environment(\.layoutClass) private var layout
     @State private var scope: HomeScope = .mine
-    /// Tapping a face in the family strip shows only that person's tasks.
-    @State private var memberFilter: UUID?
     /// Drives the first-time entrance. Stays true while Home is alive (e.g. coming back from a task).
     @State private var appeared = false
+
+    /// Tapping a face in the family strip (or a person in the tablet sidebar) shows only their tasks.
+    private var memberFilter: UUID? {
+        get { router.homeMemberFilter }
+        nonmutating set { router.homeMemberFilter = newValue }
+    }
 
     var body: some View {
         let list = store.homeTasks(scope: scope, member: memberFilter)
@@ -15,7 +20,12 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header.reveal(appeared, order: 0, distance: -10)
-                memberStrip
+                if layout == .expanded {
+                    // The sidebar lists the people; the narrow list column gets a search field instead.
+                    searchField.reveal(appeared, order: 1)
+                } else {
+                    memberStrip
+                }
                 stats.reveal(appeared, order: 2)
                 filterControl.reveal(appeared, order: 3)
                 taskList(list)
@@ -26,9 +36,40 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
         .background(Theme.background)
         .startsEntrance($appeared, isActive: router.tab == .home)
+        .onAppear { selectFirst(list) }
+        .onChange(of: layout) { _ in selectFirst(list) }
         // Gives pushed pages a "‹ Home" back button.
         .navigationTitle("Home")
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// Expanded layout: keep the detail pane filled, starting with the top task.
+    private func selectFirst(_ list: [FamilyTask]) {
+        guard layout == .expanded else { return }
+        if let id = router.selectedTask[.home], store.task(id) != nil { return }
+        router.selectedTask[.home] = list.first(where: { !$0.isDone })?.id ?? list.first?.id
+    }
+
+    private var searchField: some View {
+        Button { router.push(.search) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .medium))
+                Text("Search tasks").font(.system(size: 15))
+                Spacer()
+                Text("⌘F")
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.line))
+            }
+            .foregroundStyle(Theme.ink3)
+            .padding(.horizontal, 12)
+            .frame(height: 38)
+            .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search tasks")
     }
 
     // MARK: - Header
@@ -44,8 +85,10 @@ struct HomeView: View {
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
-            IconButton(systemImage: "magnifyingglass", label: "Search tasks") {
-                router.push(.search)
+            if layout != .expanded {
+                IconButton(systemImage: "magnifyingglass", label: "Search tasks") {
+                    router.push(.search)
+                }
             }
             IconButton(systemImage: "bell", showsDot: !store.incomingRequests.isEmpty, label: "Inbox") {
                 router.tab = .inbox
@@ -159,21 +202,95 @@ struct HomeView: View {
         if list.isEmpty {
             EmptyStateView(emoji: "🎉", title: "All clear", message: "Nothing here right now. Tap ＋ to add a task.")
                 .reveal(appeared, order: 4)
+        } else if layout == .medium {
+            grid(list)
         } else {
             LazyVStack(spacing: 10) {
                 ForEach(Array(list.enumerated()), id: \.element.id) { index, task in
-                    TaskCard(task: task)
-                        .contentShape(Rectangle())
-                        .onTapGesture { router.push(.taskDetail(task.id)) }
-                        .accessibilityAddTraits(.isButton)
-                        .reveal(appeared, order: 4 + index, distance: 26, step: 0.06)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.96).combined(with: .opacity),
-                            removal: .opacity
-                        ))
+                    card(task, index: index)
                 }
             }
             .animation(Theme.spring, value: list.map(\.id))
+        }
+    }
+
+    private func card(_ task: FamilyTask, index: Int) -> some View {
+        let isSelected = layout == .expanded && router.selectedTask[.home] == task.id
+        return TaskCard(task: task)
+            // Expanded: the task shown in the detail pane gets a dark outline.
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.ink, lineWidth: 2)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { router.push(.taskDetail(task.id)) }
+            .modifier(TaskDragModifier(taskID: task.id, isOn: layout.isTablet))
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .reveal(appeared, order: 4 + index, distance: 26, step: 0.06)
+            .transition(.asymmetric(
+                insertion: .scale(scale: 0.96).combined(with: .opacity),
+                removal: .opacity
+            ))
+    }
+
+    // MARK: - Medium: 2-column grid, grouped by day (T2)
+
+    private func grid(_ list: [FamilyTask]) -> some View {
+        let groups = DayGroup.make(list)
+        return VStack(alignment: .leading, spacing: 14) {
+            ForEach(groups) { group in
+                if let title = group.title {
+                    SectionLabel(title).padding(.top, 4)
+                }
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10, alignment: .top),
+                                    GridItem(.flexible(), alignment: .top)], spacing: 10) {
+                    ForEach(Array(group.tasks.enumerated()), id: \.element.id) { index, task in
+                        card(task, index: group.offset + index)
+                    }
+                }
+            }
+        }
+        .animation(Theme.spring, value: list.map(\.id))
+    }
+}
+
+/// Today's (and overdue / undated / finished) tasks first without a heading, then Tomorrow, then Later.
+private struct DayGroup: Identifiable {
+    let title: String?
+    let tasks: [FamilyTask]
+    let offset: Int
+    var id: String { title ?? "now" }
+
+    static func make(_ list: [FamilyTask], calendar: Calendar = .current) -> [DayGroup] {
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now))!
+        let later = calendar.date(byAdding: .day, value: 1, to: tomorrow)!
+        var now: [FamilyTask] = [], next: [FamilyTask] = [], rest: [FamilyTask] = []
+        for task in list {
+            guard !task.isDone, let due = task.dueDate, due >= tomorrow else { now.append(task); continue }
+            if due < later { next.append(task) } else { rest.append(task) }
+        }
+        var groups: [DayGroup] = []
+        var offset = 0
+        let buckets: [(String?, [FamilyTask])] = [(nil, now), ("Tomorrow", next), ("Later", rest)]
+        for (title, tasks) in buckets where !tasks.isEmpty {
+            groups.append(DayGroup(title: title, tasks: tasks, offset: offset))
+            offset += tasks.count
+        }
+        return groups
+    }
+}
+
+/// Tablet: drag a task card onto a person in the sidebar to reassign it.
+struct TaskDragModifier: ViewModifier {
+    let taskID: UUID
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content.draggable(taskID.uuidString)
+        } else {
+            content
         }
     }
 }

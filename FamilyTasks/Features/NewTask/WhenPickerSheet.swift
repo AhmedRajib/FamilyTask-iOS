@@ -6,6 +6,8 @@ struct WhenPickerSheet: View {
     @Binding var dueDate: Date?
     @Binding var isAllDay: Bool
     let times: [TimeShortcut]
+    /// Tablet New Task (T3): drawn inside the form's right column; every change is applied straight away.
+    var isInline = false
     @Environment(\.dismiss) private var dismiss
 
     private enum DayChoice: Hashable { case today, tomorrow, weekend, other }
@@ -22,6 +24,138 @@ struct WhenPickerSheet: View {
     private var today: Date { calendar.startOfDay(for: .now) }
 
     var body: some View {
+        if isInline { inlineBody } else { sheetBody }
+    }
+
+    // MARK: - Tablet (inline)
+
+    private var inlineBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            preview
+                .overlay(alignment: .topTrailing) {
+                    if dueDate != nil {
+                        Button("No date") {
+                            dueDate = nil
+                            isAllDay = false
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .padding(12)
+                    }
+                }
+                .opacity(dueDate == nil ? 0.55 : 1)
+
+            question("Which day?")
+            HStack(spacing: 6) {
+                dayTile(.today, "Today", detail: tileDate(today))
+                dayTile(.tomorrow, "Tomorrow", detail: tileDate(date(for: .tomorrow)))
+                dayTile(.weekend, "Weekend", detail: tileDate(date(for: .weekend)))
+                dayTile(.other, "Other…", detail: day == .other ? tileDate(otherDay) : "Calendar")
+            }
+            if showCalendar {
+                DatePicker("Day", selection: $otherDay, in: today..., displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .tint(Theme.ink)
+                    .card(padding: 8)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+            }
+
+            question("What time?")
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible())], spacing: 6) {
+                ForEach(times.filter { $0.date(on: selectedDay) > .now }) { shortcut in
+                    timeTile(emoji: shortcut.emoji, title: shortcut.name, detail: shortcut.timeText,
+                             isOn: time == .shortcut(shortcut.id)) { pick(shortcut) }
+                }
+                timeTile(emoji: "☀️", title: "Any time", detail: "No set time", isOn: time == .anyTime) {
+                    time = .anyTime
+                }
+            }
+            customTimeRow.padding(.top, 10)
+        }
+        .animation(Theme.spring, value: showCalendar)
+        .animation(.quick(0.25), value: day)
+        .animation(.quick(0.25), value: time)
+        .haptic(.selection, trigger: day)
+        .haptic(.selection, trigger: time)
+        .onAppear {
+            load()
+            DispatchQueue.main.async(execute: commit)
+        }
+        .onChange(of: resolved) { _ in commit() }
+        .onChange(of: time) { _ in commit() }
+        .onChange(of: dueDate) { _ in
+            // Something outside (a shortcut chip) changed the date: show it here.
+            if let dueDate, dueDate != resolved { didLoad = false; load() }
+        }
+    }
+
+    /// Writes the choice back to the form, unless it is already in the past.
+    private func commit() {
+        guard !isPast else { return }
+        if dueDate != resolved { dueDate = resolved }
+        if isAllDay != (time == .anyTime) { isAllDay = time == .anyTime }
+    }
+
+    private func tileDate(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).day())
+    }
+
+    private func dayTile(_ choice: DayChoice, _ title: String, detail: String) -> some View {
+        let isOn = day == choice
+        return Button {
+            if choice == .other && day == .other {
+                showCalendar.toggle()
+            } else {
+                day = choice
+                showCalendar = choice == .other
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text(detail).font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(isOn ? Theme.surface2 : Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isOn ? Theme.ink : Theme.line, lineWidth: 1.5))
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private func timeTile(emoji: String, title: String, detail: String, isOn: Bool,
+                          action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(emoji).font(.system(size: 20))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 13.5, weight: .semibold))
+                    Text(detail).font(.system(size: 11.5)).opacity(0.7)
+                }
+                .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isOn ? .white : Theme.ink)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(isOn ? Theme.ink : Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isOn ? Theme.ink : Theme.line, lineWidth: 1.5))
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityLabel("\(title), \(detail)")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    // MARK: - Phone (sheet)
+
+    private var sheetBody: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {

@@ -61,8 +61,46 @@ final class Router: ObservableObject {
         )
     }
 
+    // MARK: Tablet
+
+    /// Set by MainTabsView from the window width.
+    var layout: LayoutClass = .compact
+    /// Expanded layout: the task shown in the detail pane, per tab (Home, Inbox).
+    @Published var selectedTask: [AppTab: UUID] = [:]
+    /// Expanded layout: the member profile shown next to the Family list.
+    @Published var selectedMember: UUID?
+    /// Sidebar "People": shows only this person's tasks on Home (same as the phone's face strip).
+    @Published var homeMemberFilter: UUID?
+    /// Tablet New Task opens as a centred two-column sheet instead of a full-screen push.
+    @Published var newTask: NewTaskRequest?
+
+    struct NewTaskRequest: Identifiable, Equatable {
+        let id = UUID()
+        let templateID: UUID?
+    }
+
     func push(_ route: Route) {
+        if layout.isTablet, case .newTask(let templateID) = route {
+            newTask = NewTaskRequest(templateID: templateID)
+            return
+        }
+        if layout == .expanded {
+            switch (route, tab) {
+            case (.taskDetail(let id), .home), (.taskDetail(let id), .inbox):
+                selectedTask[tab] = id
+                return
+            case (.memberProfile(let id), .family) where isAtRoot:
+                selectedMember = id
+                return
+            default: break
+            }
+        }
         paths[tab, default: []].append(route)
+    }
+
+    /// Back from the detail pane, or after deleting the task it shows.
+    func clearSelection() {
+        selectedTask[tab] = nil
     }
 
     /// Swaps the current page for another (Add member → Invite), so Back skips the form.

@@ -230,7 +230,7 @@ private struct ScenePalette {
 // MARK: - Street scene
 
 /// The same street in three lights. Drawn on a 308×92 canvas and scaled to fit the card.
-private struct StreetScene: View {
+struct StreetScene: View {
     let time: TimeOfDay
     let isShown: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

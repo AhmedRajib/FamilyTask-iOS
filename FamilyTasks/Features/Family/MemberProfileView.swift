@@ -8,6 +8,8 @@ struct MemberProfileView: View {
     @EnvironmentObject private var router: Router
     @Environment(\.dismiss) private var dismiss
     let memberID: UUID
+    /// Tablet (expanded): shown beside the Family list instead of pushed, so it draws its own Edit button.
+    var isPane = false
 
     @State private var confirm: Confirm?
     @State private var showEdit = false
@@ -32,6 +34,15 @@ struct MemberProfileView: View {
     private func content(_ member: Member) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if isPane && (canManage || isMe) {
+                    HStack {
+                        Spacer()
+                        Button("Edit") { showEdit = true }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Theme.brand)
+                    }
+                    .padding(.top, 12)
+                }
                 header(member)
 
                 if canManage {
@@ -281,7 +292,7 @@ struct MemberProfileView: View {
             }
         case .remove:
             Button("Remove \(member.name)", role: .destructive) {
-                dismiss()
+                if isPane { router.selectedMember = nil } else { dismiss() }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { store.removeMember(member.id) }
             }
         case .signOutSelf:

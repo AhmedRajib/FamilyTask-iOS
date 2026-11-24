@@ -4,7 +4,11 @@ import MapKit
 struct TaskDetailView: View {
     @EnvironmentObject private var store: FamilyStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.layoutClass) private var layout
+    @EnvironmentObject private var router: Router
     let taskID: UUID
+    /// Tablet (expanded): shown beside the list instead of pushed, so it draws its own top buttons.
+    var isPane = false
 
     @State private var confirmDelete = false
     @State private var showDecline = false
@@ -24,6 +28,115 @@ struct TaskDetailView: View {
     private func content(_ task: FamilyTask) -> some View {
         let creator = store.member(task.creatorID)
         return ScrollView {
+            if layout.isTablet {
+                wideContent(task, creator: creator)
+            } else {
+                phoneContent(task, creator: creator)
+            }
+        }
+        .background(Theme.background)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.background, for: .navigationBar)
+        .toolbar {
+            if perms.canDelete(task) && !isPane {
+                moreMenu(task)
+            }
+        }
+        .confirmationDialog("Delete this task?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if isPane { router.clearSelection() } else { dismiss() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { store.delete(task.id) }
+            }
+        } message: {
+            Text("It will be removed for everyone in the family.")
+        }
+        .alert("Can't do it?", isPresented: $showDecline) {
+            TextField("Reason (optional)", text: $declineReason)
+            Button("Send", role: .destructive) {
+                withAnimation(Theme.spring) { store.decline(task.id, reason: declineReason) }
+                declineReason = ""
+            }
+            Button("Cancel", role: .cancel) { declineReason = "" }
+        } message: {
+            Text("\(creator?.name ?? "They") will see your reason.")
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { actionBar(task) }
+    }
+
+    private func moreMenu(_ task: FamilyTask) -> some View {
+        Menu {
+            Button(role: .destructive) { confirmDelete = true } label: {
+                Label("Delete task", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: isPane ? "ellipsis" : "ellipsis.circle").foregroundStyle(Theme.ink)
+        }
+        .accessibilityLabel("More")
+    }
+
+    // MARK: - Tablet layout (T1 detail)
+
+    /// Header, then two columns: facts and checklist on the left, notes on the right.
+    private func wideContent(_ task: FamilyTask, creator: Member?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if isPane && perms.canDelete(task) {
+                HStack {
+                    Spacer()
+                    moreMenu(task)
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.line))
+                }
+                .padding(.bottom, 4)
+            }
+            Text("From \(creator?.id == me.id ? "you" : creator?.name ?? "someone") · \(task.createdAt.formatted(.relative(presentation: .named)))")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.ink2)
+            Text(task.title)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(task.isDone ? Theme.ink3 : Theme.ink)
+                .strikethrough(task.isDone, color: Theme.ink3)
+                .padding(.top, 2)
+                .padding(.bottom, 14)
+
+            statusBanner(task, creator: creator)
+
+            HStack(alignment: .top, spacing: 22) {
+                VStack(alignment: .leading, spacing: 0) {
+                    infoGrid(task, creator: creator)
+                    if let location = task.location, let place = store.place(for: location) {
+                        locationCard(place, trigger: location.trigger)
+                    }
+                    if !task.checklist.isEmpty {
+                        checklist(task).padding(.top, 20)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel("Notes")
+                    Text(task.notes.isEmpty ? "No notes" : task.notes)
+                        .font(.system(size: 15))
+                        .foregroundStyle(task.notes.isEmpty ? Theme.ink3 : Theme.ink2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .card()
+                }
+                // Facts get the room; notes keep a readable column.
+                .frame(minWidth: 190, idealWidth: 250, maxWidth: 300)
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 20)
+        .frame(maxWidth: TabletMetrics.detailMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Theme.spring, value: task.status)
+    }
+
+    // MARK: - Phone layout
+
+    private func phoneContent(_ task: FamilyTask, creator: Member?) -> some View {
             VStack(alignment: .leading, spacing: 0) {
                 statusBanner(task, creator: creator)
 
@@ -50,42 +163,6 @@ struct TaskDetailView: View {
             }
             .padding(20)
             .animation(Theme.spring, value: task.status)
-        }
-        .background(Theme.background)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Theme.background, for: .navigationBar)
-        .toolbar {
-            if perms.canDelete(task) {
-                Menu {
-                    Button(role: .destructive) { confirmDelete = true } label: {
-                        Label("Delete task", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle").foregroundStyle(Theme.ink)
-                }
-                .accessibilityLabel("More")
-            }
-        }
-        .confirmationDialog("Delete this task?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { store.delete(task.id) }
-            }
-        } message: {
-            Text("It will be removed for everyone in the family.")
-        }
-        .alert("Can't do it?", isPresented: $showDecline) {
-            TextField("Reason (optional)", text: $declineReason)
-            Button("Send", role: .destructive) {
-                withAnimation(Theme.spring) { store.decline(task.id, reason: declineReason) }
-                declineReason = ""
-            }
-            Button("Cancel", role: .cancel) { declineReason = "" }
-        } message: {
-            Text("\(creator?.name ?? "They") will see your reason.")
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) { actionBar(task) }
     }
 
     // MARK: - Banner
@@ -297,8 +374,9 @@ private struct InfoTile<Content: View>: View {
             content
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.ink)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card(padding: 12)

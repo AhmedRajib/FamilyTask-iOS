@@ -46,6 +46,12 @@ final class AppSession: ObservableObject {
         }
         account = saved.account
         restore()
+        #if DEBUG
+        // Screenshots / simulator checks: `simctl launch … -demoFamily` opens the demo family directly.
+        if account == nil, ProcessInfo.processInfo.arguments.contains("-demoFamily") {
+            signIn(LocalServer.demoAccount)
+        }
+        #endif
     }
 
     // MARK: - Sign in / out

@@ -190,6 +190,25 @@ final class FamilyStore: ObservableObject {
         return copy
     }
 
+    /// Tablet drag-and-drop: hand an open task to one person. Same rules as New Task —
+    /// a child asking an adult sends a request, and urgent drops to high when it isn't allowed.
+    @discardableResult
+    func reassign(_ id: UUID, to memberID: UUID) -> Bool {
+        guard let i = tasks.firstIndex(where: { $0.id == id }), let target = member(memberID),
+              tasks[i].status == .open, permissions.canEdit(tasks[i]),
+              tasks[i].assigneeIDs != [memberID] else { return false }
+        let ability = permissions.assignAbility(to: target)
+        guard ability != .notAllowed else { return false }
+        tasks[i].assigneeIDs = [memberID]
+        if ability == .request { tasks[i].status = .requested }
+        if memberID != tasks[i].creatorID { tasks[i].isPrivate = false }
+        if tasks[i].priority == .urgent && !permissions.canUseUrgent(assignees: [memberID]) {
+            tasks[i].priority = .high
+        }
+        save()
+        return true
+    }
+
     func toggleChecklistItem(task taskID: UUID, item itemID: UUID) {
         guard let i = tasks.firstIndex(where: { $0.id == taskID }),
               let j = tasks[i].checklist.firstIndex(where: { $0.id == itemID }) else { return }

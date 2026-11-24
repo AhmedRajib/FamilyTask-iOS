@@ -5,6 +5,8 @@ struct NewTaskView: View {
     @EnvironmentObject private var store: FamilyStore
     @Environment(\.dismiss) private var dismiss
     let templateID: UUID?
+    /// Tablet: shown as a centred two-column sheet that closes through this instead of `dismiss`.
+    var onClose: (() -> Void)? = nil
 
     @State private var title = ""
     @State private var notes = ""
@@ -41,8 +43,77 @@ struct NewTaskView: View {
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var canSave: Bool { !trimmedTitle.isEmpty && !assignees.isEmpty }
 
+    private var isSheet: Bool { onClose != nil }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
     var body: some View {
+        Group {
+            if isSheet { tabletBody } else { phoneBody }
+        }
+        .background(Theme.background)
+        .navigationTitle("New Task")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.background, for: .navigationBar)
+        .toolbar {
+            if isSheet {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: close).keyboardShortcut(.cancelAction)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { saveBar.reveal(appeared, order: 6, distance: 40) }
+        .navigationDestination(isPresented: $showLocation) {
+            LocationPickerView(location: $location, taskTitle: trimmedTitle)
+        }
+        .sheet(isPresented: $showWhen) {
+            WhenPickerSheet(dueDate: $dueDate, isAllDay: $isAllDay, times: store.family.times)
+        }
+        .onAppear(perform: setUp)
+        .startsEntrance($appeared)
+        .onChange(of: assignees) { _ in
+            if !urgentAllowed && priority == .urgent { priority = .high }
+            if !isJustMe { isPrivate = false }
+        }
+        .onChange(of: dueDate) { _ in
+            if dueDate == nil { reminder = .none }
+        }
+    }
+
+    private var phoneBody: some View {
         ScrollView {
+            formColumn(showsWhen: true)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    /// Tablet (T3): left = quick-start, title, who, priority, details. Right = the "When" picker, inline.
+    private var tabletBody: some View {
+        HStack(alignment: .top, spacing: 0) {
+            ScrollView {
+                formColumn(showsWhen: false)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .frame(maxWidth: .infinity)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionLabel("When").padding(.bottom, 8)
+                    WhenPickerSheet(dueDate: $dueDate, isAllDay: $isAllDay, times: store.family.times,
+                                    isInline: true)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+                .reveal(appeared, order: 2)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func formColumn(showsWhen: Bool) -> some View {
             VStack(spacing: 0) {
                 quickStart.reveal(appeared, order: 0, distance: 10)
                 titleCard.reveal(appeared, order: 1)
@@ -61,7 +132,7 @@ struct NewTaskView: View {
 
                 Group {
                     SectionLabel("Details").padding(.top, 20).padding(.bottom, 8)
-                    detailsCard
+                    detailsCard(showsWhen: showsWhen)
                 }
                 .reveal(appeared, order: 4)
 
@@ -81,28 +152,6 @@ struct NewTaskView: View {
             .padding(.top, 8)
             .padding(.bottom, 24)
             .animation(Theme.spring, value: isJustMe)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Theme.background)
-        .navigationTitle("New Task")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Theme.background, for: .navigationBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) { saveBar.reveal(appeared, order: 6, distance: 40) }
-        .navigationDestination(isPresented: $showLocation) {
-            LocationPickerView(location: $location, taskTitle: trimmedTitle)
-        }
-        .sheet(isPresented: $showWhen) {
-            WhenPickerSheet(dueDate: $dueDate, isAllDay: $isAllDay, times: store.family.times)
-        }
-        .onAppear(perform: setUp)
-        .startsEntrance($appeared)
-        .onChange(of: assignees) { _ in
-            if !urgentAllowed && priority == .urgent { priority = .high }
-            if !isJustMe { isPrivate = false }
-        }
-        .onChange(of: dueDate) { _ in
-            if dueDate == nil { reminder = .none }
-        }
     }
 
     // MARK: - Set-up
@@ -297,15 +346,16 @@ struct NewTaskView: View {
         return "\(place.emoji) \(place.name) · \(location.trigger.title.lowercased())"
     }
 
-    private var detailsCard: some View {
+    private func detailsCard(showsWhen: Bool) -> some View {
         VStack(spacing: 0) {
-            Button { showWhen = true } label: {
-                DetailRow(icon: "calendar", tint: Theme.brand, title: "When", value: whenText,
-                          valueColor: dueDate == nil ? Theme.ink3 : Theme.ink)
+            if showsWhen {
+                Button { showWhen = true } label: {
+                    DetailRow(icon: "calendar", tint: Theme.brand, title: "When", value: whenText,
+                              valueColor: dueDate == nil ? Theme.ink3 : Theme.ink)
+                }
+                .buttonStyle(.plain)
+                RowDivider()
             }
-            .buttonStyle(.plain)
-
-            RowDivider()
             Menu {
                 Picker("Repeat", selection: $repeatRule) {
                     ForEach(RepeatRule.allCases) { Text($0.title).tag($0) }
@@ -413,10 +463,16 @@ struct NewTaskView: View {
     }
 
     private var saveBar: some View {
-        Button(action: save) {
-            Text(ctaTitle).contentTransition(.opacity)
+        HStack(spacing: 14) {
+            if isSheet {
+                Text("⌘↩ to send").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+            }
+            Button(action: save) {
+                Text(ctaTitle).contentTransition(.opacity)
+            }
+            .buttonStyle(PrimaryButtonStyle(color: priority == .urgent && !isJustMe ? Theme.urgent : Theme.ink))
+            .keyboardShortcut(.return, modifiers: .command)
         }
-        .buttonStyle(PrimaryButtonStyle(color: priority == .urgent && !isJustMe ? Theme.urgent : Theme.ink))
         .disabled(!canSave)
         .animation(.quick, value: ctaTitle)
         .animation(.quick, value: priority)
@@ -444,7 +500,7 @@ struct NewTaskView: View {
         )
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(Theme.spring) { store.add(task) }
-        dismiss()
+        close()
     }
 }
 
